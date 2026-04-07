@@ -57,13 +57,21 @@ const CHART_STEP_MIN = 60
 const INITIAL_PAST_DAYS = 21
 const INITIAL_FUTURE_DAYS = 21
 const EXTEND_DAYS = 14
-const CHART_POINT_SPACING = 6
+/** Minimum pixels between hourly samples (also used as floor when deriving spacing). */
+const CHART_MIN_POINT_SPACING = 5
+/** Aim for ~this many hours of timeline visible in the viewport at once (hourly points). */
+const CHART_HOURS_IN_VIEWPORT = 24
 const CHART_INITIAL_SPACING = 12
 const CHART_END_SPACING = 12
 const CHART_HEIGHT = 240
 const Y_AXIS_TITLE_W = 22
-/** X-axis label every N hours (hourly samples). 12 = twice per day. */
-const X_LABEL_EVERY_H = 12
+/** X-axis label on each local hour where hour % N === 0 (hourly data, on-the-hour). */
+const X_LABEL_EVERY_H = 3
+/**
+ * Gifted-charts x-axis label cell width is `spacing + labelsExtraHeight` (see LineChart renderLabel).
+ * Without enough total width, `h:mm A` ellipsizes (e.g. "7:0…").
+ */
+const X_AXIS_LABEL_MIN_SLOT_WIDTH = 52
 
 const PALETTE = {
   light: {
@@ -141,9 +149,6 @@ function buildScrollableLineData(
   accent: string,
   muted: string
 ) {
-  const perHour = Math.max(1, Math.round(60 / CHART_STEP_MIN))
-  const labelEveryPoints = X_LABEL_EVERY_H * perHour
-
   if (series.length === 0) {
     return {
       lineData: [
@@ -174,11 +179,10 @@ function buildScrollableLineData(
 
   const lineData = series.map((p, i) => {
     const d = dayjs(p.t)
-    const showTimeLabel =
-      i % labelEveryPoints === 0 || i === series.length - 1
-    const label = showTimeLabel
-      ? `${d.format('MMM D, YYYY')}\n${d.format('h:mm A')}`
-      : ' '
+    const onClockGrid =
+      d.minute() === 0 && d.hour() % X_LABEL_EVERY_H === 0
+    const showTimeLabel = onClockGrid || i === series.length - 1
+    const label = showTimeLabel ? d.format('h A') : ' '
 
     const base = {
       value: Math.round(p.caffeine_mg * 10) / 10,
@@ -309,6 +313,21 @@ function Screen() {
     Dimensions.get('window').width - 32 - Y_AXIS_TITLE_W
   )
 
+  const chartPointSpacing = useMemo(
+    () =>
+      Math.max(
+        CHART_MIN_POINT_SPACING,
+        Math.round(chartViewportW / CHART_HOURS_IN_VIEWPORT)
+      ),
+    [chartViewportW]
+  )
+
+  const chartLabelsExtraHeight = useMemo(
+    () =>
+      Math.max(10, X_AXIS_LABEL_MIN_SLOT_WIDTH - chartPointSpacing),
+    [chartPointSpacing]
+  )
+
   const chartLayout = useMemo(() => {
     return buildScrollableLineData(
       fullSeries,
@@ -318,13 +337,29 @@ function Screen() {
     )
   }, [fullSeries, now, c.accent, c.muted])
 
-  const { lineData, nowIndex } = chartLayout
+  const { lineData } = chartLayout
 
   /** Total horizontal extent of the series (for scroll math / layout). Do not pass as LineChart `width` (that prop is viewport width in gifted-charts). */
   const chartTotalWidth =
     CHART_INITIAL_SPACING +
     CHART_END_SPACING +
-    Math.max(0, fullSeries.length - 1) * CHART_POINT_SPACING
+    Math.max(0, fullSeries.length - 1) * chartPointSpacing
+
+  /** Nearest series index to local midnight of the calendar day containing `now` (for default scroll). */
+  const midnightTodayIndex = useMemo(() => {
+    if (fullSeries.length === 0) return 0
+    const midnight = dayjs(now).startOf('day').valueOf()
+    let bestIdx = 0
+    let bestDist = Infinity
+    fullSeries.forEach((p, i) => {
+      const dist = Math.abs(p.t - midnight)
+      if (dist < bestDist) {
+        bestDist = dist
+        bestIdx = i
+      }
+    })
+    return bestIdx
+  }, [fullSeries, now])
 
   const chartMax = useMemo(() => {
     const peak = Math.max(
@@ -339,13 +374,13 @@ function Screen() {
     (scrollX: number) => {
       if (fullSeries.length === 0) return
       const contentX = scrollX + chartViewportW / 2 - CHART_INITIAL_SPACING
-      const idx = Math.round(Math.max(0, contentX / CHART_POINT_SPACING))
+      const idx = Math.round(Math.max(0, contentX / chartPointSpacing))
       const clamped = Math.min(idx, fullSeries.length - 1)
       setChartViewDate(
-        dayjs(fullSeries[clamped].t).format('dddd, MMM D, YYYY [·] h:mm A')
+        dayjs(fullSeries[clamped].t).format('dddd, MMMM D, YYYY')
       )
     },
-    [fullSeries, chartViewportW]
+    [fullSeries, chartViewportW, chartPointSpacing]
   )
 
   const onChartScroll = useCallback(
@@ -367,9 +402,9 @@ function Screen() {
     if (t - lastExtendPastRef.current < 900) return
     lastExtendPastRef.current = t
     scrollPastAdjustRef.current =
-      EXTEND_DAYS * pointsPerDayFromStep(CHART_STEP_MIN) * CHART_POINT_SPACING
+      EXTEND_DAYS * pointsPerDayFromStep(CHART_STEP_MIN) * chartPointSpacing
     setPastDays((d) => d + EXTEND_DAYS)
-  }, [])
+  }, [chartPointSpacing])
 
   const extendFuture = useCallback(() => {
     const t = Date.now()
@@ -404,24 +439,22 @@ function Screen() {
     })
     const x = Math.max(
       0,
-      CHART_INITIAL_SPACING + idx * CHART_POINT_SPACING - chartViewportW / 2
+      CHART_INITIAL_SPACING + idx * chartPointSpacing - chartViewportW / 2
     )
     chartScrollRef.current?.scrollTo({ x, animated: true })
     scrollXRef.current = x
     updateChartViewDate(x)
     didInitialChartScrollRef.current = true
-  }, [fullSeries, chartViewportW, updateChartViewDate])
+  }, [fullSeries, chartViewportW, chartPointSpacing, updateChartViewDate])
 
   useEffect(() => {
     if (!hydrated || fullSeries.length < 2 || didInitialChartScrollRef.current) {
       return
     }
-    const x = Math.max(
-      0,
-      CHART_INITIAL_SPACING +
-        nowIndex * CHART_POINT_SPACING -
-        chartViewportW / 2
-    )
+    const rawLeft =
+      CHART_INITIAL_SPACING + midnightTodayIndex * chartPointSpacing
+    const maxScrollX = Math.max(0, chartTotalWidth - chartViewportW)
+    const x = Math.max(0, Math.min(rawLeft, maxScrollX))
     const timer = setTimeout(() => {
       if (didInitialChartScrollRef.current) return
       if (!chartScrollRef.current) return
@@ -434,8 +467,10 @@ function Screen() {
   }, [
     hydrated,
     fullSeries.length,
-    nowIndex,
+    midnightTodayIndex,
+    chartTotalWidth,
     chartViewportW,
+    chartPointSpacing,
     updateChartViewDate,
   ])
 
@@ -738,14 +773,15 @@ function Screen() {
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Active caffeine</Text>
             <Text style={styles.chartCaption}>
-              Drag the chart sideways (wider than the screen). Dashed line ≈
+              About {CHART_HOURS_IN_VIEWPORT} hours of the timeline show at once;
+              drag sideways for weeks of history or future. Dashed line ≈
               sleep-safe ({thresholdMg.toFixed(0)} mg). Near the ends, more days
-              load. Use Today to jump to the current time.
+              load. Opens from midnight today; Today jumps to now.
             </Text>
             <View style={styles.chartBannerRow}>
               <Text
                 style={[styles.chartDateBanner, { color: c.textStrong }]}
-                numberOfLines={2}
+                numberOfLines={1}
               >
                 {chartViewDate}
               </Text>
@@ -775,7 +811,7 @@ function Screen() {
                   scrollRef={chartScrollRef}
                   parentWidth={chartViewportW}
                   height={CHART_HEIGHT}
-                  spacing={CHART_POINT_SPACING}
+                  spacing={chartPointSpacing}
                   initialSpacing={CHART_INITIAL_SPACING}
                   endSpacing={CHART_END_SPACING}
                   data={lineData}
@@ -790,9 +826,9 @@ function Screen() {
                     color: c.muted,
                     fontSize: 10,
                   }}
-                  xAxisTextNumberOfLines={2}
-                  xAxisLabelsHeight={48}
-                  labelsExtraHeight={18}
+                  xAxisTextNumberOfLines={1}
+                  xAxisLabelsHeight={28}
+                  labelsExtraHeight={chartLabelsExtraHeight}
                   maxValue={chartMax}
                   mostNegativeValue={0}
                   noOfSections={5}
