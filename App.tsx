@@ -936,6 +936,7 @@ function Screen() {
                     yAxisThickness={0}
                     xAxisColor={c.border}
                     xAxisThickness={CHART_X_AXIS_THICKNESS}
+                    xAxisType="solid"
                     rulesColor={c.border}
                     floatingYAxisLabels
                     hideYAxisText
