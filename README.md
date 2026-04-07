@@ -1,30 +1,43 @@
-# Caffeine half-life tracker (MVP)
+# Caffeine half-life tracker
 
-Single-page web app: log caffeine (time + mg), model exponential decay with a configurable half-life, chart active caffeine over the last 24 hours and next 12 hours, and compare to a simple sleep-safe threshold (1.5 mg/kg body weight).
+Expo (React Native) app for **iOS** and **Android**: log caffeine doses, model exponential decay with a configurable half-life, chart active caffeine (last 24h → next 12h), and compare to a simple sleep-safe threshold (1.5 mg/kg body weight).
 
 **Not medical advice**—for behavioral awareness only.
+
+## Requirements
+
+- [Node.js](https://nodejs.org/) (Expo SDK 54 expects **Node ≥ 20.19.4**; upgrade if you see engine warnings)
+- [Expo Go](https://expo.dev/go) on a phone for quick testing, or Xcode / Android Studio for simulators and store builds
 
 ## Run locally
 
 ```bash
-cd caffeine-half-life-tracker
 npm install
-npm run dev
+npx expo start
 ```
 
-Open the URL Vite prints (usually `http://localhost:5173`).
+Then press **i** (iOS simulator), **a** (Android emulator), or scan the QR code with Expo Go.
 
-## Build
+## Scripts
 
-```bash
-npm run build
-npm run preview   # optional: serve production build
-```
+| Command           | Action                          |
+| ----------------- | ------------------------------- |
+| `npx expo start`  | Dev server (Metro)              |
+| `npm run ios`     | Start and open iOS              |
+| `npm run android` | Start and open Android          |
+| `npm run web`     | Optional Expo web export        |
 
-Data is stored in **localStorage** in the browser (no backend).
+## Data
 
-## Stack
+State is stored with **AsyncStorage** on device (same logical schema as the earlier web MVP: entries + settings). Theme preference (Auto / Light / Dark) is included.
 
-- React + TypeScript (Vite)
-- Recharts (chart)
-- Day.js (formatting)
+## Project layout
+
+- `App.tsx` — UI and wiring
+- `src/caffeineMath.ts` — decay model and series helpers
+- `src/types.ts` — entry/settings types
+- `src/storage.ts` — load/save via AsyncStorage
+
+## Store builds
+
+Use [EAS Build](https://docs.expo.dev/build/introduction/) when you are ready for TestFlight / Play Console. Update `ios.bundleIdentifier` and `android.package` in `app.json` to your own identifiers before publishing.
