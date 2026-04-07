@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons'
 import DateTimePicker from '@react-native-community/datetimepicker'
 import { StatusBar } from 'expo-status-bar'
 import {
+  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -11,8 +12,10 @@ import {
 } from 'react'
 import {
   ActivityIndicator,
+  Animated,
   Dimensions,
   KeyboardAvoidingView,
+  type LayoutChangeEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
   Platform,
@@ -34,7 +37,7 @@ import dayjs from 'dayjs'
 import localizedFormat from 'dayjs/plugin/localizedFormat'
 import {
   buildSeries,
-  minutesUntilBelowThreshold,
+  dateWhenBelowThreshold,
   sleepThresholdMg,
   totalCaffeineAt,
   weightToKg,
@@ -64,6 +67,26 @@ const CHART_HOURS_IN_VIEWPORT = 24
 const CHART_INITIAL_SPACING = 12
 const CHART_END_SPACING = 12
 const CHART_HEIGHT = 240
+/** Must match `yAxisLabelWidth` / `yAxisThickness` on `LineChart` for the “now” time overlay. */
+const CHART_Y_AXIS_LABEL_W = 52
+const CHART_Y_AXIS_THICKNESS = 1
+/** Must match `xAxisThickness` on `LineChart`. */
+const CHART_X_AXIS_THICKNESS = 1
+/**
+ * “Now” vertical line is drawn in RN (not gifted-charts SVG). Height is derived from
+ * `onLayout` on the chart block so it matches the real LineChart outer box; reserve the
+ * bottom band for x-axis + labels (must stay in sync with LineChart props below).
+ */
+const CHART_NOW_LINE_TOP = 10
+/** Must match `xAxisLabelsHeight` on `LineChart`. */
+const CHART_X_AXIS_LABELS_H = 28
+/**
+ * Gifted-charts adds extra vertical chrome (+50, scroll insets, etc.); the x-axis sits above
+ * the full `labels + shift + labelsExtraHeight` band. Trim reserve so the line meets the axis.
+ */
+const CHART_NOW_LINE_BOTTOM_RESERVE_TRIM = 5
+/** Time label above the line (negative = above chart top). */
+const CHART_NOW_TIME_TOP = -10
 /** Pushes the plot + x-axis line up so labels (fixed to scroll bottom) sit below the line. */
 const CHART_X_AXIS_LABEL_SHIFT = 12
 /** Y-axis grid step and tick labels (mg). */
@@ -75,6 +98,33 @@ const X_LABEL_EVERY_H = 3
  * Without enough total width, `h:mm A` ellipsizes (e.g. "7:0…").
  */
 const X_AXIS_LABEL_MIN_SLOT_WIDTH = 52
+
+const chartNowOverlayText = StyleSheet.create({
+  text: {
+    width: 72,
+    textAlign: 'center',
+    fontSize: 10,
+    fontWeight: '600',
+  },
+})
+
+/** Text only — memoized so horizontal scroll does not re-render the time string. */
+const ChartNowTimeOverlayLabel = memo(function ChartNowTimeOverlayLabel({
+  label,
+  color,
+}: {
+  label: string
+  color: string
+}) {
+  return (
+    <Text
+      pointerEvents="none"
+      style={[chartNowOverlayText.text, { color }]}
+    >
+      {label}
+    </Text>
+  )
+})
 
 const PALETTE = {
   light: {
@@ -114,6 +164,18 @@ function formatDurationMinutes(mins: number | null): string {
   const h = Math.floor(mins / 60)
   const m = Math.round(mins % 60)
   return m > 0 ? `~${h}h ${m}m` : `~${h}h`
+}
+
+/** Wall-clock time when caffeine first drops to the sleep-safe threshold (local). */
+function formatSleepSafeAt(at: Date | null, alreadySleepSafe: boolean): string {
+  if (alreadySleepSafe) return 'Now'
+  if (at == null) return 'Not within a week'
+  const d = dayjs(at)
+  const today = dayjs()
+  if (d.isSame(today, 'day')) return d.format('h:mm A')
+  if (d.isSame(today.add(1, 'day'), 'day'))
+    return `Tomorrow, ${d.format('h:mm A')}`
+  return d.format('ddd, MMM D · h:mm A')
 }
 
 function newId(): string {
@@ -187,21 +249,11 @@ function buildScrollableLineData(
     const showTimeLabel = onClockGrid || i === series.length - 1
     const label = showTimeLabel ? d.format('h A') : ' '
 
-    const base = {
+    return {
       value: Math.round(p.caffeine_mg * 10) / 10,
       label,
       labelTextStyle: { fontSize: 10, color: muted, textAlign: 'center' as const },
     }
-    if (i === nearestNow) {
-      return {
-        ...base,
-        showVerticalLine: true,
-        verticalLineColor: accent,
-        verticalLineThickness: 1,
-        verticalLineUptoDataPoint: true,
-      }
-    }
-    return base
   })
 
   return { lineData, nowIndex: nearestNow }
@@ -273,6 +325,23 @@ function Screen() {
     return () => clearInterval(id)
   }, [])
 
+  /** Wall-clock minute bucket; chart “now” stamp only updates when this changes. */
+  const [minuteEpoch, setMinuteEpoch] = useState(() =>
+    Math.floor(Date.now() / 60_000)
+  )
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      const m = Math.floor(Date.now() / 60_000)
+      setMinuteEpoch((prev) => (prev !== m ? m : prev))
+    }, 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  useEffect(() => {
+    setMinuteEpoch(Math.floor(now.getTime() / 60_000))
+  }, [now])
+
   const scheme = effectiveScheme(
     route === 'settings' ? draftTheme : themePreference,
     systemScheme
@@ -282,14 +351,23 @@ function Screen() {
   const weightKg = weightToKg(settings.weightValue, settings.weightUnit)
   const thresholdMg = sleepThresholdMg(weightKg)
   const currentMg = totalCaffeineAt(entries, now, settings.halfLifeHours)
-  const untilSafe = minutesUntilBelowThreshold(
-    entries,
-    settings.halfLifeHours,
-    thresholdMg,
-    now,
-    5,
-    168
-  )
+  const alreadySleepSafe = currentMg <= thresholdMg
+  const { untilSafe, sleepSafeAt } = useMemo(() => {
+    const at = dateWhenBelowThreshold(
+      entries,
+      settings.halfLifeHours,
+      thresholdMg,
+      now,
+      5,
+      168
+    )
+    if (currentMg <= thresholdMg) return { untilSafe: 0, sleepSafeAt: at }
+    if (at == null) return { untilSafe: null, sleepSafeAt: null }
+    return {
+      untilSafe: (at.getTime() - now.getTime()) / (1000 * 60),
+      sleepSafeAt: at,
+    }
+  }, [entries, settings.halfLifeHours, thresholdMg, now, currentMg])
 
   const [pastDays, setPastDays] = useState(INITIAL_PAST_DAYS)
   const [futureDays, setFutureDays] = useState(INITIAL_FUTURE_DAYS)
@@ -299,6 +377,10 @@ function Screen() {
 
   const chartScrollRef = useRef<ScrollView | null>(null)
   const scrollXRef = useRef(0)
+  /** Visible-day banner: skip setState when center index unchanged during scroll. */
+  const chartBannerIdxRef = useRef(-1)
+  const chartScrollXAnim = useRef(new Animated.Value(0)).current
+  const nowLineBaseXAnim = useRef(new Animated.Value(0)).current
   const scrollPastAdjustRef = useRef(0)
   const didInitialChartScrollRef = useRef(false)
   const pendingTodayScrollRef = useRef(false)
@@ -311,7 +393,9 @@ function Screen() {
     return buildSeries(entries, start, end, settings.halfLifeHours, CHART_STEP_MIN)
   }, [entries, now, settings.halfLifeHours, pastDays, futureDays])
 
-  const chartViewportW = Math.max(240, Dimensions.get('window').width - 32)
+  const windowWidth = Dimensions.get('window').width
+  /** Full window width so the chart can sit edge-to-edge when margins cancel scroll padding. */
+  const chartViewportW = Math.max(240, windowWidth)
 
   const chartPointSpacing = useMemo(
     () =>
@@ -328,6 +412,35 @@ function Screen() {
     [chartPointSpacing]
   )
 
+  /** Pixels from chart block bottom up to the plotted x-axis (approx.). */
+  const chartNowLineBottomReserve = useMemo(
+    () =>
+      Math.max(
+        22,
+        CHART_X_AXIS_LABELS_H +
+          CHART_X_AXIS_LABEL_SHIFT +
+          chartLabelsExtraHeight -
+          CHART_X_AXIS_THICKNESS -
+          CHART_NOW_LINE_BOTTOM_RESERVE_TRIM
+      ),
+    [chartLabelsExtraHeight]
+  )
+
+  const [chartBlockHeight, setChartBlockHeight] = useState(0)
+
+  const onChartBlockLayout = useCallback((e: LayoutChangeEvent) => {
+    const h = e.nativeEvent.layout.height
+    if (h > 0) setChartBlockHeight(h)
+  }, [])
+
+  const nowLineHeight = useMemo(() => {
+    if (chartBlockHeight <= 0) return 0
+    return Math.max(
+      1,
+      chartBlockHeight - CHART_NOW_LINE_TOP - chartNowLineBottomReserve
+    )
+  }, [chartBlockHeight, chartNowLineBottomReserve])
+
   const chartLayout = useMemo(() => {
     return buildScrollableLineData(
       fullSeries,
@@ -337,7 +450,26 @@ function Screen() {
     )
   }, [fullSeries, now, c.accent, c.muted])
 
-  const { lineData } = chartLayout
+  const { lineData, nowIndex } = chartLayout
+
+  const nowLineTranslateX = useMemo(
+    () => Animated.subtract(nowLineBaseXAnim, chartScrollXAnim),
+    [nowLineBaseXAnim, chartScrollXAnim]
+  )
+
+  useLayoutEffect(() => {
+    nowLineBaseXAnim.setValue(
+      CHART_Y_AXIS_LABEL_W +
+        CHART_Y_AXIS_THICKNESS +
+        CHART_INITIAL_SPACING +
+        nowIndex * chartPointSpacing
+    )
+  }, [nowIndex, chartPointSpacing, nowLineBaseXAnim])
+
+  const nowTimeLabel = useMemo(
+    () => dayjs(minuteEpoch * 60_000).format('h:mm A'),
+    [minuteEpoch]
+  )
 
   /** Total horizontal extent of the series (for scroll math / layout). Do not pass as LineChart `width` (that prop is viewport width in gifted-charts). */
   const chartTotalWidth =
@@ -380,6 +512,8 @@ function Screen() {
       const contentX = scrollX + chartViewportW / 2 - CHART_INITIAL_SPACING
       const idx = Math.round(Math.max(0, contentX / chartPointSpacing))
       const clamped = Math.min(idx, fullSeries.length - 1)
+      if (clamped === chartBannerIdxRef.current) return
+      chartBannerIdxRef.current = clamped
       setChartViewDate(
         dayjs(fullSeries[clamped].t).format('dddd, MMMM D, YYYY')
       )
@@ -387,13 +521,20 @@ function Screen() {
     [fullSeries, chartViewportW, chartPointSpacing]
   )
 
-  const onChartScroll = useCallback(
-    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const x = e.nativeEvent.contentOffset.x
-      scrollXRef.current = x
-      updateChartViewDate(x)
-    },
-    [updateChartViewDate]
+  const onChartScroll = useMemo(
+    () =>
+      Animated.event(
+        [{ nativeEvent: { contentOffset: { x: chartScrollXAnim } } }],
+        {
+          useNativeDriver: false,
+          listener: (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+            const x = e.nativeEvent.contentOffset.x
+            scrollXRef.current = x
+            updateChartViewDate(x)
+          },
+        }
+      ),
+    [chartScrollXAnim, updateChartViewDate]
   )
 
   const jumpToToday = useCallback(() => {
@@ -425,8 +566,10 @@ function Screen() {
     const x = Math.max(0, target)
     chartScrollRef.current?.scrollTo({ x, animated: false })
     scrollXRef.current = x
+    chartScrollXAnim.setValue(x)
+    chartBannerIdxRef.current = -1
     updateChartViewDate(x)
-  }, [pastDays, updateChartViewDate])
+  }, [pastDays, updateChartViewDate, chartScrollXAnim])
 
   useLayoutEffect(() => {
     if (!pendingTodayScrollRef.current || fullSeries.length < 2) return
@@ -447,9 +590,17 @@ function Screen() {
     )
     chartScrollRef.current?.scrollTo({ x, animated: true })
     scrollXRef.current = x
+    chartScrollXAnim.setValue(x)
+    chartBannerIdxRef.current = -1
     updateChartViewDate(x)
     didInitialChartScrollRef.current = true
-  }, [fullSeries, chartViewportW, chartPointSpacing, updateChartViewDate])
+  }, [
+    fullSeries,
+    chartViewportW,
+    chartPointSpacing,
+    updateChartViewDate,
+    chartScrollXAnim,
+  ])
 
   useEffect(() => {
     if (!hydrated || fullSeries.length < 2 || didInitialChartScrollRef.current) {
@@ -465,6 +616,8 @@ function Screen() {
       didInitialChartScrollRef.current = true
       chartScrollRef.current.scrollTo({ x, animated: false })
       scrollXRef.current = x
+      chartScrollXAnim.setValue(x)
+      chartBannerIdxRef.current = -1
       updateChartViewDate(x)
     }, 200)
     return () => clearTimeout(timer)
@@ -476,12 +629,15 @@ function Screen() {
     chartViewportW,
     chartPointSpacing,
     updateChartViewDate,
+    chartScrollXAnim,
   ])
 
   useEffect(() => {
     if (!didInitialChartScrollRef.current || fullSeries.length === 0) return
+    chartBannerIdxRef.current = -1
+    chartScrollXAnim.setValue(scrollXRef.current)
     updateChartViewDate(scrollXRef.current)
-  }, [fullSeries, updateChartViewDate])
+  }, [fullSeries, updateChartViewDate, chartScrollXAnim])
 
   const addEntry = useCallback(() => {
     const mg = Number(formMg)
@@ -690,6 +846,171 @@ function Screen() {
             </Pressable>
           </View>
 
+          <View style={styles.activeCaffeineSection}>
+            <Text style={styles.cardTitle}>Summary</Text>
+            <View style={styles.statsRowTop}>
+              <View style={styles.statCol}>
+                <Text style={styles.statLabel}>Current</Text>
+                <View style={styles.statValueRow}>
+                  <Text style={styles.statValue}>{currentMg.toFixed(0)} mg</Text>
+                </View>
+              </View>
+              <View style={styles.statCol}>
+                <Text style={styles.statLabel}>Until Sleep-Safe</Text>
+                <View style={styles.statValueRow}>
+                  <Text style={[styles.statValue, styles.statValueSmall]}>
+                    {formatDurationMinutes(untilSafe)}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.statCol}>
+                <Text style={styles.statLabel}>Sleep-Safe At</Text>
+                <View style={styles.statValueRow}>
+                  <Text style={[styles.statValue, styles.statValueSmall]}>
+                    {formatSleepSafeAt(sleepSafeAt, alreadySleepSafe)}
+                  </Text>
+                </View>
+              </View>
+            </View>
+            {/* <Text style={styles.chartCaption}>
+              About {CHART_HOURS_IN_VIEWPORT} hours of the timeline show at once;
+              drag sideways for weeks of history or future. Dashed line ≈
+              sleep-safe ({thresholdMg.toFixed(0)} mg). Near the ends, more days
+              load. Opens from midnight today; Today jumps to now.
+            </Text> */}
+            <View style={styles.chartBannerRow}>
+              <Text
+                style={[styles.chartDateBanner, { color: c.textStrong }]}
+                numberOfLines={1}
+              >
+                {chartViewDate}
+              </Text>
+              <Pressable
+                onPress={jumpToToday}
+                style={({ pressed }) => [
+                  styles.chartTodayBtn,
+                  {
+                    borderColor: c.border,
+                    backgroundColor: c.surface,
+                    opacity: pressed ? 0.85 : 1,
+                  },
+                ]}
+              >
+                <Ionicons name="today-outline" size={18} color={c.accent} />
+                <Text style={[styles.chartTodayBtnText, { color: c.accent }]}>
+                  Today
+                </Text>
+              </Pressable>
+            </View>
+            <View
+              style={[
+                styles.chartRow,
+                styles.chartRowFullBleed,
+                { width: windowWidth },
+              ]}
+            >
+              <View
+                style={{ position: 'relative', width: chartViewportW }}
+                collapsable={false}
+              >
+                <View onLayout={onChartBlockLayout}>
+                  <LineChart
+                    scrollRef={chartScrollRef}
+                    parentWidth={chartViewportW}
+                    height={CHART_HEIGHT}
+                    spacing={chartPointSpacing}
+                    initialSpacing={CHART_INITIAL_SPACING}
+                    endSpacing={CHART_END_SPACING}
+                    data={lineData}
+                    color={c.chart}
+                    thickness={2}
+                    hideDataPoints
+                    overflowBottom={0}
+                    yAxisColor={c.border}
+                    xAxisColor={c.border}
+                    xAxisThickness={CHART_X_AXIS_THICKNESS}
+                    rulesColor={c.border}
+                    yAxisTextStyle={{ color: c.muted, fontSize: 10 }}
+                    xAxisLabelTextStyle={{
+                      color: c.muted,
+                      fontSize: 10,
+                    }}
+                    xAxisTextNumberOfLines={1}
+                    xAxisLabelsHeight={CHART_X_AXIS_LABELS_H}
+                    xAxisLabelsVerticalShift={CHART_X_AXIS_LABEL_SHIFT}
+                    labelsExtraHeight={chartLabelsExtraHeight}
+                    maxValue={chartMax}
+                    mostNegativeValue={0}
+                    stepValue={CHART_Y_STEP_MG}
+                    yAxisLabelWidth={CHART_Y_AXIS_LABEL_W}
+                    hideOrigin
+                    showFractionalValues={false}
+                    roundToDigits={0}
+                    formatYLabel={(lbl) => {
+                      const n = Number(lbl)
+                      if (!Number.isFinite(n)) return String(lbl)
+                      return `${Math.round(n)} mg`
+                    }}
+                    showReferenceLine1
+                    referenceLine1Position={thresholdMg}
+                    referenceLine1Config={{
+                      color: c.threshold,
+                      thickness: 2,
+                      type: 'dashed',
+                      dashWidth: 6,
+                      dashGap: 4,
+                    }}
+                    isAnimated={false}
+                    showScrollIndicator
+                    scrollEventThrottle={16}
+                    onScroll={onChartScroll}
+                    onStartReached={extendPast}
+                    onEndReached={extendFuture}
+                    endReachedOffset={120}
+                  />
+                </View>
+                {fullSeries.length >= 2 && nowLineHeight > 0 && (
+                  <Animated.View
+                    pointerEvents="none"
+                    style={{
+                      position: 'absolute',
+                      left: 0,
+                      top: 0,
+                      width: chartViewportW,
+                      height: chartBlockHeight,
+                      transform: [{ translateX: nowLineTranslateX }],
+                    }}
+                  >
+                    <View
+                      style={{
+                        position: 'absolute',
+                        left: 0,
+                        marginLeft: -0.5,
+                        top: CHART_NOW_LINE_TOP,
+                        height: nowLineHeight,
+                        width: 1,
+                        backgroundColor: c.accent,
+                      }}
+                    />
+                    <View
+                      style={{
+                        position: 'absolute',
+                        left: 0,
+                        top: CHART_NOW_TIME_TOP,
+                        transform: [{ translateX: -36 }],
+                      }}
+                    >
+                      <ChartNowTimeOverlayLabel
+                        label={nowTimeLabel}
+                        color={c.accent}
+                      />
+                    </View>
+                  </Animated.View>
+                )}
+              </View>
+            </View>
+          </View>
+
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Log caffeine</Text>
             <Text style={styles.label}>Amount (mg)</Text>
@@ -773,108 +1094,6 @@ function Screen() {
               ))}
             </View>
           )}
-
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Active caffeine</Text>
-            <Text style={styles.chartCaption}>
-              About {CHART_HOURS_IN_VIEWPORT} hours of the timeline show at once;
-              drag sideways for weeks of history or future. Dashed line ≈
-              sleep-safe ({thresholdMg.toFixed(0)} mg). Near the ends, more days
-              load. Opens from midnight today; Today jumps to now.
-            </Text>
-            <View style={styles.chartBannerRow}>
-              <Text
-                style={[styles.chartDateBanner, { color: c.textStrong }]}
-                numberOfLines={1}
-              >
-                {chartViewDate}
-              </Text>
-              <Pressable
-                onPress={jumpToToday}
-                style={({ pressed }) => [
-                  styles.chartTodayBtn,
-                  {
-                    borderColor: c.border,
-                    backgroundColor: c.surface,
-                    opacity: pressed ? 0.85 : 1,
-                  },
-                ]}
-              >
-                <Ionicons name="today-outline" size={18} color={c.accent} />
-                <Text style={[styles.chartTodayBtnText, { color: c.accent }]}>
-                  Today
-                </Text>
-              </Pressable>
-            </View>
-            <View style={styles.chartRow}>
-              <View style={{ width: chartViewportW }}>
-                <LineChart
-                  scrollRef={chartScrollRef}
-                  parentWidth={chartViewportW}
-                  height={CHART_HEIGHT}
-                  spacing={chartPointSpacing}
-                  initialSpacing={CHART_INITIAL_SPACING}
-                  endSpacing={CHART_END_SPACING}
-                  data={lineData}
-                  color={c.chart}
-                  thickness={2}
-                  hideDataPoints
-                  yAxisColor={c.border}
-                  xAxisColor={c.border}
-                  rulesColor={c.border}
-                  yAxisTextStyle={{ color: c.muted, fontSize: 10 }}
-                  xAxisLabelTextStyle={{
-                    color: c.muted,
-                    fontSize: 10,
-                  }}
-                  xAxisTextNumberOfLines={1}
-                  xAxisLabelsHeight={28}
-                  xAxisLabelsVerticalShift={CHART_X_AXIS_LABEL_SHIFT}
-                  labelsExtraHeight={chartLabelsExtraHeight}
-                  maxValue={chartMax}
-                  mostNegativeValue={0}
-                  stepValue={CHART_Y_STEP_MG}
-                  yAxisLabelWidth={52}
-                  hideOrigin
-                  showFractionalValues={false}
-                  roundToDigits={0}
-                  formatYLabel={(lbl) => {
-                    const n = Number(lbl)
-                    if (!Number.isFinite(n)) return String(lbl)
-                    return `${Math.round(n)} mg`
-                  }}
-                  showReferenceLine1
-                  referenceLine1Position={thresholdMg}
-                  referenceLine1Config={{
-                    color: c.threshold,
-                    thickness: 2,
-                    type: 'dashed',
-                    dashWidth: 6,
-                    dashGap: 4,
-                  }}
-                  isAnimated={false}
-                  showScrollIndicator
-                  scrollEventThrottle={16}
-                  onScroll={onChartScroll}
-                  onStartReached={extendPast}
-                  onEndReached={extendFuture}
-                  endReachedOffset={120}
-                />
-              </View>
-            </View>
-            <View style={styles.statsRow}>
-              <View style={styles.statCol}>
-                <Text style={styles.statLabel}>Current</Text>
-                <Text style={styles.statValue}>{currentMg.toFixed(0)} mg</Text>
-              </View>
-              <View style={styles.statCol}>
-                <Text style={styles.statLabel}>Until sleep-safe</Text>
-                <Text style={[styles.statValue, styles.statValueSmall]}>
-                  {formatDurationMinutes(untilSafe)}
-                </Text>
-              </View>
-            </View>
-          </View>
 
           <Text style={styles.disclaimer}>
             Fixed half-life and a rough mg/kg cutoff for education only. Not
@@ -1078,9 +1297,26 @@ function makeStyles(c: ThemeColors) {
       alignItems: 'stretch',
       marginVertical: 4,
     },
-    statsRow: { flexDirection: 'row', marginTop: 16, gap: 16 },
+    /** Cancels `scrollContent` horizontal padding so the chart spans screen width. */
+    chartRowFullBleed: {
+      marginHorizontal: -16,
+      alignSelf: 'center',
+    },
+    activeCaffeineSection: {
+      marginBottom: 14,
+    },
+    statsRowTop: {
+      flexDirection: 'row',
+      gap: 16,
+      marginBottom: 12,
+    },
     statCol: { flex: 1 },
-    statLabel: { fontSize: 12, color: c.muted },
+    statLabel: { fontSize: 12, color: c.muted, marginBottom: 6 },
+    /** Shared height so 18px values sit on the same bottom edge as the 28px “Current” value. */
+    statValueRow: {
+      minHeight: 36,
+      justifyContent: 'flex-end',
+    },
     statValue: { fontSize: 28, fontWeight: '700', color: c.textStrong },
     statValueSmall: { fontSize: 18 },
     disclaimer: {

@@ -83,3 +83,29 @@ export function minutesUntilBelowThreshold(
   }
   return null
 }
+
+/**
+ * First instant at/after `from` when total caffeine is at or below threshold
+ * (same stepping as `minutesUntilBelowThreshold`). Returns `from` if already
+ * at/below; `null` if not reached within `maxHours`.
+ */
+export function dateWhenBelowThreshold(
+  entries: CaffeineEntry[],
+  halfLifeHours: number,
+  thresholdMg: number,
+  from: Date,
+  stepMinutes = 5,
+  maxHours = 168
+): Date | null {
+  const startTotal = totalCaffeineAt(entries, from, halfLifeHours)
+  if (startTotal <= thresholdMg) return from
+
+  const stepMs = stepMinutes * 60 * 1000
+  const endMs = from.getTime() + maxHours * MS_PER_HOUR
+  for (let ms = from.getTime() + stepMs; ms <= endMs; ms += stepMs) {
+    if (totalCaffeineAt(entries, new Date(ms), halfLifeHours) <= thresholdMg) {
+      return new Date(ms)
+    }
+  }
+  return null
+}
