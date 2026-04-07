@@ -64,7 +64,10 @@ const CHART_HOURS_IN_VIEWPORT = 24
 const CHART_INITIAL_SPACING = 12
 const CHART_END_SPACING = 12
 const CHART_HEIGHT = 240
-const Y_AXIS_TITLE_W = 22
+/** Pushes the plot + x-axis line up so labels (fixed to scroll bottom) sit below the line. */
+const CHART_X_AXIS_LABEL_SHIFT = 12
+/** Y-axis grid step and tick labels (mg). */
+const CHART_Y_STEP_MG = 50
 /** X-axis label on each local hour where hour % N === 0 (hourly data, on-the-hour). */
 const X_LABEL_EVERY_H = 3
 /**
@@ -308,10 +311,7 @@ function Screen() {
     return buildSeries(entries, start, end, settings.halfLifeHours, CHART_STEP_MIN)
   }, [entries, now, settings.halfLifeHours, pastDays, futureDays])
 
-  const chartViewportW = Math.max(
-    240,
-    Dimensions.get('window').width - 32 - Y_AXIS_TITLE_W
-  )
+  const chartViewportW = Math.max(240, Dimensions.get('window').width - 32)
 
   const chartPointSpacing = useMemo(
     () =>
@@ -367,7 +367,11 @@ function Screen() {
       10,
       ...fullSeries.map((p) => p.caffeine_mg)
     )
-    return Math.ceil(peak * 1.08)
+    const padded = Math.ceil(peak * 1.08)
+    return Math.max(
+      CHART_Y_STEP_MG,
+      Math.ceil(padded / CHART_Y_STEP_MG) * CHART_Y_STEP_MG
+    )
   }, [fullSeries, thresholdMg])
 
   const updateChartViewDate = useCallback(
@@ -803,9 +807,6 @@ function Screen() {
               </Pressable>
             </View>
             <View style={styles.chartRow}>
-              <View style={styles.yAxisTitleWrap}>
-                <Text style={[styles.yAxisTitle, { color: c.muted }]}>mg</Text>
-              </View>
               <View style={{ width: chartViewportW }}>
                 <LineChart
                   scrollRef={chartScrollRef}
@@ -828,16 +829,19 @@ function Screen() {
                   }}
                   xAxisTextNumberOfLines={1}
                   xAxisLabelsHeight={28}
+                  xAxisLabelsVerticalShift={CHART_X_AXIS_LABEL_SHIFT}
                   labelsExtraHeight={chartLabelsExtraHeight}
                   maxValue={chartMax}
                   mostNegativeValue={0}
-                  noOfSections={5}
-                  yAxisLabelWidth={40}
+                  stepValue={CHART_Y_STEP_MG}
+                  yAxisLabelWidth={52}
+                  hideOrigin
                   showFractionalValues={false}
                   roundToDigits={0}
                   formatYLabel={(lbl) => {
                     const n = Number(lbl)
-                    return Number.isFinite(n) ? String(Math.round(n)) : String(lbl)
+                    if (!Number.isFinite(n)) return String(lbl)
+                    return `${Math.round(n)} mg`
                   }}
                   showReferenceLine1
                   referenceLine1Position={thresholdMg}
@@ -1073,19 +1077,6 @@ function makeStyles(c: ThemeColors) {
       flexDirection: 'row',
       alignItems: 'stretch',
       marginVertical: 4,
-    },
-    yAxisTitleWrap: {
-      width: Y_AXIS_TITLE_W,
-      justifyContent: 'center',
-      alignItems: 'center',
-      paddingRight: 2,
-    },
-    yAxisTitle: {
-      fontSize: 12,
-      fontWeight: '700',
-      transform: [{ rotate: '-90deg' }],
-      width: 72,
-      textAlign: 'center',
     },
     statsRow: { flexDirection: 'row', marginTop: 16, gap: 16 },
     statCol: { flex: 1 },
