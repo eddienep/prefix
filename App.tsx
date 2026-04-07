@@ -14,6 +14,7 @@ import {
   ActivityIndicator,
   Animated,
   Dimensions,
+  Image,
   KeyboardAvoidingView,
   type LayoutChangeEvent,
   type NativeScrollEvent,
@@ -45,6 +46,11 @@ import {
 } from './src/caffeineMath'
 import { loadState, saveState, type ThemePreference } from './src/storage'
 import type { AppSettings, CaffeineEntry, WeightUnit } from './src/types'
+
+const PREFIX_LOGO_DARK_THEME = require('./assets/prefixlogowhite.png')
+const PREFIX_LOGO_LIGHT_THEME = require('./assets/prefixlogoblack.png')
+/** Behind white logo in header (dark theme only). */
+const PREFIX_LOGO_CHIP_BG_DARK = '#0f172a'
 import { DEFAULT_SETTINGS } from './src/types'
 
 dayjs.extend(localizedFormat)
@@ -824,12 +830,34 @@ function Screen() {
           nestedScrollEnabled
         >
           <View style={styles.headerRow}>
+            <View
+              style={[
+                styles.headerLogoChip,
+                {
+                  backgroundColor:
+                    scheme === 'dark'
+                      ? PREFIX_LOGO_CHIP_BG_DARK
+                      : 'transparent',
+                },
+              ]}
+            >
+              <Image
+                source={
+                  scheme === 'dark'
+                    ? PREFIX_LOGO_DARK_THEME
+                    : PREFIX_LOGO_LIGHT_THEME
+                }
+                style={styles.headerLogoImage}
+                resizeMode="contain"
+                accessibilityLabel="Prefix"
+              />
+            </View>
             <View style={{ flex: 1, paddingRight: 8 }}>
-              <Text style={styles.title}>Caffeine half-life</Text>
-              <Text style={styles.tagline}>
+              <Text style={styles.title}>Caffeine Curve</Text>
+              {/* <Text style={styles.tagline}>
                 Decay curve vs a simple sleep-safe line (1.5 mg/kg). Awareness
                 only—not medical advice.
-              </Text>
+              </Text> */}
             </View>
             <Pressable
               onPress={openSettings}
@@ -1163,15 +1191,27 @@ function makeStyles(c: ThemeColors) {
       padding: 10,
       marginTop: -2,
       borderRadius: 12,
-      borderWidth: 1,
-      borderColor: c.border,
-      backgroundColor: c.surface,
+      // borderWidth: 1,
+      // borderColor: c.border,
+      // backgroundColor: c.surface,
     },
     headerRow: {
       flexDirection: 'row',
-      alignItems: 'flex-start',
+      alignItems: 'center',
       gap: 12,
       marginBottom: 16,
+    },
+    headerLogoChip: {
+      width: 52,
+      height: 52,
+      borderRadius: 14,
+      alignItems: 'center',
+      justifyContent: 'center',
+      overflow: 'hidden',
+    },
+    headerLogoImage: {
+      width: 40,
+      height: 40,
     },
     title: {
       fontSize: 22,
