@@ -64,12 +64,17 @@ const EXTEND_DAYS = 14
 const CHART_MIN_POINT_SPACING = 5
 /** Aim for ~this many hours of timeline visible in the viewport at once (hourly points). */
 const CHART_HOURS_IN_VIEWPORT = 24
-const CHART_INITIAL_SPACING = 12
+/** 0 keeps grid/x-axis aligned with the left edge (gifted-charts scroll `paddingLeft` otherwise hides rules). */
+const CHART_INITIAL_SPACING = 0
 const CHART_END_SPACING = 12
 const CHART_HEIGHT = 240
-/** Must match `yAxisLabelWidth` / `yAxisThickness` on `LineChart` for the “now” time overlay. */
-const CHART_Y_AXIS_LABEL_W = 52
-const CHART_Y_AXIS_THICKNESS = 1
+/**
+ * Y-axis gutter removed (`yAxisLabelWidth` / `yAxisThickness` = 0); labels float in-plot via
+ * `floatingYAxisLabels` + `yAxisLabelContainerStyle.width`.
+ */
+const CHART_FLOATING_Y_LABEL_W = 56
+/** Nudge floating Y labels down so they sit just under the horizontal grid lines. */
+const CHART_FLOATING_Y_LABEL_NUDGE_Y = 8
 /** Must match `xAxisThickness` on `LineChart`. */
 const CHART_X_AXIS_THICKNESS = 1
 /**
@@ -459,10 +464,7 @@ function Screen() {
 
   useLayoutEffect(() => {
     nowLineBaseXAnim.setValue(
-      CHART_Y_AXIS_LABEL_W +
-        CHART_Y_AXIS_THICKNESS +
-        CHART_INITIAL_SPACING +
-        nowIndex * chartPointSpacing
+      CHART_INITIAL_SPACING + nowIndex * chartPointSpacing
     )
   }, [nowIndex, chartPointSpacing, nowLineBaseXAnim])
 
@@ -852,7 +854,7 @@ function Screen() {
               <View style={styles.statCol}>
                 <Text style={styles.statLabel}>Current</Text>
                 <View style={styles.statValueRow}>
-                  <Text style={styles.statValue}>{currentMg.toFixed(0)} mg</Text>
+                  <Text style={[styles.statValue, styles.statValueSmall]}>{currentMg.toFixed(0)} mg</Text>
                 </View>
               </View>
               <View style={styles.statCol}>
@@ -906,7 +908,11 @@ function Screen() {
               style={[
                 styles.chartRow,
                 styles.chartRowFullBleed,
-                { width: windowWidth },
+                {
+                  width: windowWidth,
+                  marginLeft: -(16 + insets.left),
+                  marginRight: -(16 + insets.right),
+                },
               ]}
             >
               <View
@@ -926,11 +932,24 @@ function Screen() {
                     thickness={2}
                     hideDataPoints
                     overflowBottom={0}
-                    yAxisColor={c.border}
+                    yAxisColor="transparent"
+                    yAxisThickness={0}
                     xAxisColor={c.border}
                     xAxisThickness={CHART_X_AXIS_THICKNESS}
                     rulesColor={c.border}
-                    yAxisTextStyle={{ color: c.muted, fontSize: 10 }}
+                    floatingYAxisLabels
+                    hideYAxisText
+                    yAxisTextStyle={{
+                      color: c.muted,
+                      fontSize: 10,
+                      transform: [
+                        { translateY: CHART_FLOATING_Y_LABEL_NUDGE_Y },
+                      ],
+                    }}
+                    yAxisLabelContainerStyle={{
+                      width: CHART_FLOATING_Y_LABEL_W,
+                      paddingLeft: 6,
+                    }}
                     xAxisLabelTextStyle={{
                       color: c.muted,
                       fontSize: 10,
@@ -942,7 +961,7 @@ function Screen() {
                     maxValue={chartMax}
                     mostNegativeValue={0}
                     stepValue={CHART_Y_STEP_MG}
-                    yAxisLabelWidth={CHART_Y_AXIS_LABEL_W}
+                    yAxisLabelWidth={0}
                     hideOrigin
                     showFractionalValues={false}
                     roundToDigits={0}
@@ -1297,10 +1316,9 @@ function makeStyles(c: ThemeColors) {
       alignItems: 'stretch',
       marginVertical: 4,
     },
-    /** Cancels `scrollContent` horizontal padding so the chart spans screen width. */
+    /** Horizontal bleed is applied per-screen with safe-area insets (see chart row `style`). */
     chartRowFullBleed: {
-      marginHorizontal: -16,
-      alignSelf: 'center',
+      alignSelf: 'stretch',
     },
     activeCaffeineSection: {
       marginBottom: 14,
