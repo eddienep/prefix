@@ -1,11 +1,20 @@
 import { Ionicons } from '@expo/vector-icons'
 import DateTimePicker from '@react-native-community/datetimepicker'
 import { StatusBar } from 'expo-status-bar'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import {
   ActivityIndicator,
   Dimensions,
   KeyboardAvoidingView,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   Platform,
   Pressable,
   ScrollView,
@@ -29,6 +38,7 @@ import {
   sleepThresholdMg,
   totalCaffeineAt,
   weightToKg,
+  type ChartPoint,
 } from './src/caffeineMath'
 import { loadState, saveState, type ThemePreference } from './src/storage'
 import type { AppSettings, CaffeineEntry, WeightUnit } from './src/types'
@@ -41,6 +51,19 @@ const PRESETS: { label: string; mg: number }[] = [
   { label: 'Energy ~160', mg: 160 },
   { label: 'Pre-workout ~200', mg: 200 },
 ]
+
+/** Sample interval for scrollable timeline (minutes). */
+const CHART_STEP_MIN = 60
+const INITIAL_PAST_DAYS = 21
+const INITIAL_FUTURE_DAYS = 21
+const EXTEND_DAYS = 14
+const CHART_POINT_SPACING = 6
+const CHART_INITIAL_SPACING = 12
+const CHART_END_SPACING = 12
+const CHART_HEIGHT = 240
+const Y_AXIS_TITLE_W = 22
+/** X-axis label every N hours (hourly samples). 12 = twice per day. */
+const X_LABEL_EVERY_H = 12
 
 const PALETTE = {
   light: {
@@ -88,16 +111,6 @@ function newId(): string {
   return `id-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
 }
 
-function downsampleSeries<T>(arr: T[], max: number): T[] {
-  if (arr.length <= max) return arr
-  const out: T[] = []
-  const step = (arr.length - 1) / (max - 1)
-  for (let i = 0; i < max; i++) {
-    out.push(arr[Math.round(i * step)])
-  }
-  return out
-}
-
 function cycleTheme(p: ThemePreference): ThemePreference {
   if (p === 'system') return 'light'
   if (p === 'light') return 'dark'
@@ -116,6 +129,75 @@ function effectiveScheme(
 ): 'light' | 'dark' {
   if (preference === 'light' || preference === 'dark') return preference
   return system === 'dark' ? 'dark' : 'light'
+}
+
+function pointsPerDayFromStep(stepMin: number): number {
+  return Math.max(1, Math.round(1440 / stepMin))
+}
+
+function buildScrollableLineData(
+  series: ChartPoint[],
+  nowMs: number,
+  accent: string,
+  muted: string
+) {
+  const perHour = Math.max(1, Math.round(60 / CHART_STEP_MIN))
+  const labelEveryPoints = X_LABEL_EVERY_H * perHour
+
+  if (series.length === 0) {
+    return {
+      lineData: [
+        {
+          value: 0,
+          label: ' ',
+          labelTextStyle: { fontSize: 9, color: muted },
+        },
+        {
+          value: 0,
+          label: ' ',
+          labelTextStyle: { fontSize: 9, color: muted },
+        },
+      ],
+      nowIndex: 0,
+    }
+  }
+
+  let nearestNow = 0
+  let best = Infinity
+  series.forEach((p, i) => {
+    const d = Math.abs(p.t - nowMs)
+    if (d < best) {
+      best = d
+      nearestNow = i
+    }
+  })
+
+  const lineData = series.map((p, i) => {
+    const d = dayjs(p.t)
+    const showTimeLabel =
+      i % labelEveryPoints === 0 || i === series.length - 1
+    const label = showTimeLabel
+      ? `${d.format('MMM D, YYYY')}\n${d.format('h:mm A')}`
+      : ' '
+
+    const base = {
+      value: Math.round(p.caffeine_mg * 10) / 10,
+      label,
+      labelTextStyle: { fontSize: 10, color: muted, textAlign: 'center' as const },
+    }
+    if (i === nearestNow) {
+      return {
+        ...base,
+        showVerticalLine: true,
+        verticalLineColor: accent,
+        verticalLineThickness: 1,
+        verticalLineUptoDataPoint: true,
+      }
+    }
+    return base
+  })
+
+  return { lineData, nowIndex: nearestNow }
 }
 
 function Screen() {
@@ -202,31 +284,165 @@ function Screen() {
     168
   )
 
-  const chartSeries = useMemo(() => {
-    const start = dayjs(now).subtract(24, 'hour').toDate()
-    const end = dayjs(now).add(12, 'hour').toDate()
-    return buildSeries(entries, start, end, settings.halfLifeHours, 5)
-  }, [entries, now, settings.halfLifeHours])
+  const [pastDays, setPastDays] = useState(INITIAL_PAST_DAYS)
+  const [futureDays, setFutureDays] = useState(INITIAL_FUTURE_DAYS)
+  const [chartViewDate, setChartViewDate] = useState(() =>
+    dayjs().format('dddd, MMMM D, YYYY')
+  )
 
-  const lineData = useMemo(() => {
-    const sampled = downsampleSeries(chartSeries, 64).map((p) => ({
-      value: Math.round(p.caffeine_mg * 10) / 10,
-    }))
-    if (sampled.length === 0) return [{ value: 0 }, { value: 0 }]
-    if (sampled.length === 1) return [sampled[0], { ...sampled[0] }]
-    return sampled
-  }, [chartSeries])
+  const chartScrollRef = useRef<ScrollView | null>(null)
+  const scrollXRef = useRef(0)
+  const scrollPastAdjustRef = useRef(0)
+  const didInitialChartScrollRef = useRef(false)
+  const pendingTodayScrollRef = useRef(false)
+  const lastExtendPastRef = useRef(0)
+  const lastExtendFutureRef = useRef(0)
+
+  const fullSeries = useMemo(() => {
+    const start = dayjs(now).subtract(pastDays, 'day').startOf('hour').toDate()
+    const end = dayjs(now).add(futureDays, 'day').endOf('hour').toDate()
+    return buildSeries(entries, start, end, settings.halfLifeHours, CHART_STEP_MIN)
+  }, [entries, now, settings.halfLifeHours, pastDays, futureDays])
+
+  const chartViewportW = Math.max(
+    240,
+    Dimensions.get('window').width - 32 - Y_AXIS_TITLE_W
+  )
+
+  const chartLayout = useMemo(() => {
+    return buildScrollableLineData(
+      fullSeries,
+      now.getTime(),
+      c.accent,
+      c.muted
+    )
+  }, [fullSeries, now, c.accent, c.muted])
+
+  const { lineData, nowIndex } = chartLayout
+
+  /** Total horizontal extent of the series (for scroll math / layout). Do not pass as LineChart `width` (that prop is viewport width in gifted-charts). */
+  const chartTotalWidth =
+    CHART_INITIAL_SPACING +
+    CHART_END_SPACING +
+    Math.max(0, fullSeries.length - 1) * CHART_POINT_SPACING
 
   const chartMax = useMemo(() => {
     const peak = Math.max(
-      ...lineData.map((d) => d.value),
       thresholdMg,
-      10
+      10,
+      ...fullSeries.map((p) => p.caffeine_mg)
     )
-    return Math.ceil(peak * 1.12)
-  }, [lineData, thresholdMg])
+    return Math.ceil(peak * 1.08)
+  }, [fullSeries, thresholdMg])
 
-  const chartWidth = Math.max(260, Dimensions.get('window').width - 48)
+  const updateChartViewDate = useCallback(
+    (scrollX: number) => {
+      if (fullSeries.length === 0) return
+      const contentX = scrollX + chartViewportW / 2 - CHART_INITIAL_SPACING
+      const idx = Math.round(Math.max(0, contentX / CHART_POINT_SPACING))
+      const clamped = Math.min(idx, fullSeries.length - 1)
+      setChartViewDate(
+        dayjs(fullSeries[clamped].t).format('dddd, MMM D, YYYY [·] h:mm A')
+      )
+    },
+    [fullSeries, chartViewportW]
+  )
+
+  const onChartScroll = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const x = e.nativeEvent.contentOffset.x
+      scrollXRef.current = x
+      updateChartViewDate(x)
+    },
+    [updateChartViewDate]
+  )
+
+  const jumpToToday = useCallback(() => {
+    pendingTodayScrollRef.current = true
+    setNow(new Date())
+  }, [])
+
+  const extendPast = useCallback(() => {
+    const t = Date.now()
+    if (t - lastExtendPastRef.current < 900) return
+    lastExtendPastRef.current = t
+    scrollPastAdjustRef.current =
+      EXTEND_DAYS * pointsPerDayFromStep(CHART_STEP_MIN) * CHART_POINT_SPACING
+    setPastDays((d) => d + EXTEND_DAYS)
+  }, [])
+
+  const extendFuture = useCallback(() => {
+    const t = Date.now()
+    if (t - lastExtendFutureRef.current < 900) return
+    lastExtendFutureRef.current = t
+    setFutureDays((d) => d + EXTEND_DAYS)
+  }, [])
+
+  useLayoutEffect(() => {
+    const dx = scrollPastAdjustRef.current
+    if (dx <= 0) return
+    scrollPastAdjustRef.current = 0
+    const target = scrollXRef.current + dx
+    const x = Math.max(0, target)
+    chartScrollRef.current?.scrollTo({ x, animated: false })
+    scrollXRef.current = x
+    updateChartViewDate(x)
+  }, [pastDays, updateChartViewDate])
+
+  useLayoutEffect(() => {
+    if (!pendingTodayScrollRef.current || fullSeries.length < 2) return
+    pendingTodayScrollRef.current = false
+    const nowMs = Date.now()
+    let idx = 0
+    let best = Infinity
+    fullSeries.forEach((p, i) => {
+      const dist = Math.abs(p.t - nowMs)
+      if (dist < best) {
+        best = dist
+        idx = i
+      }
+    })
+    const x = Math.max(
+      0,
+      CHART_INITIAL_SPACING + idx * CHART_POINT_SPACING - chartViewportW / 2
+    )
+    chartScrollRef.current?.scrollTo({ x, animated: true })
+    scrollXRef.current = x
+    updateChartViewDate(x)
+    didInitialChartScrollRef.current = true
+  }, [fullSeries, chartViewportW, updateChartViewDate])
+
+  useEffect(() => {
+    if (!hydrated || fullSeries.length < 2 || didInitialChartScrollRef.current) {
+      return
+    }
+    const x = Math.max(
+      0,
+      CHART_INITIAL_SPACING +
+        nowIndex * CHART_POINT_SPACING -
+        chartViewportW / 2
+    )
+    const timer = setTimeout(() => {
+      if (didInitialChartScrollRef.current) return
+      if (!chartScrollRef.current) return
+      didInitialChartScrollRef.current = true
+      chartScrollRef.current.scrollTo({ x, animated: false })
+      scrollXRef.current = x
+      updateChartViewDate(x)
+    }, 200)
+    return () => clearTimeout(timer)
+  }, [
+    hydrated,
+    fullSeries.length,
+    nowIndex,
+    chartViewportW,
+    updateChartViewDate,
+  ])
+
+  useEffect(() => {
+    if (!didInitialChartScrollRef.current || fullSeries.length === 0) return
+    updateChartViewDate(scrollXRef.current)
+  }, [fullSeries, updateChartViewDate])
 
   const addEntry = useCallback(() => {
     const mg = Number(formMg)
@@ -280,6 +496,7 @@ function Screen() {
             ]}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
+            nestedScrollEnabled
           >
             <View style={styles.settingsTopBar}>
               <Pressable
@@ -407,6 +624,7 @@ function Screen() {
           ]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
+          nestedScrollEnabled
         >
           <View style={styles.headerRow}>
             <View style={{ flex: 1, paddingRight: 8 }}>
@@ -520,43 +738,89 @@ function Screen() {
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Active caffeine</Text>
             <Text style={styles.chartCaption}>
-              Last 24h → next 12h. Dashed line ≈ sleep-safe ({thresholdMg.toFixed(0)}{' '}
-              mg).
+              Drag the chart sideways (wider than the screen). Dashed line ≈
+              sleep-safe ({thresholdMg.toFixed(0)} mg). Near the ends, more days
+              load. Use Today to jump to the current time.
             </Text>
-            <View style={styles.chartBox}>
-              <LineChart
-                data={lineData}
-                width={chartWidth}
-                height={200}
-                spacing={
-                  lineData.length > 1
-                    ? (chartWidth - 24) / (lineData.length - 1)
-                    : 40
-                }
-                initialSpacing={12}
-                endSpacing={12}
-                color={c.chart}
-                thickness={2}
-                hideDataPoints
-                yAxisColor={c.border}
-                xAxisColor={c.border}
-                rulesColor={c.border}
-                yAxisTextStyle={{ color: c.muted, fontSize: 10 }}
-                xAxisLabelTextStyle={{ color: c.muted, fontSize: 9 }}
-                maxValue={chartMax}
-                noOfSections={4}
-                yAxisOffset={4}
-                showReferenceLine1
-                referenceLine1Position={thresholdMg}
-                referenceLine1Config={{
-                  color: c.threshold,
-                  thickness: 2,
-                  type: 'dashed',
-                  dashWidth: 6,
-                  dashGap: 4,
-                }}
-                isAnimated={false}
-              />
+            <View style={styles.chartBannerRow}>
+              <Text
+                style={[styles.chartDateBanner, { color: c.textStrong }]}
+                numberOfLines={2}
+              >
+                {chartViewDate}
+              </Text>
+              <Pressable
+                onPress={jumpToToday}
+                style={({ pressed }) => [
+                  styles.chartTodayBtn,
+                  {
+                    borderColor: c.border,
+                    backgroundColor: c.surface,
+                    opacity: pressed ? 0.85 : 1,
+                  },
+                ]}
+              >
+                <Ionicons name="today-outline" size={18} color={c.accent} />
+                <Text style={[styles.chartTodayBtnText, { color: c.accent }]}>
+                  Today
+                </Text>
+              </Pressable>
+            </View>
+            <View style={styles.chartRow}>
+              <View style={styles.yAxisTitleWrap}>
+                <Text style={[styles.yAxisTitle, { color: c.muted }]}>mg</Text>
+              </View>
+              <View style={{ width: chartViewportW }}>
+                <LineChart
+                  scrollRef={chartScrollRef}
+                  parentWidth={chartViewportW}
+                  height={CHART_HEIGHT}
+                  spacing={CHART_POINT_SPACING}
+                  initialSpacing={CHART_INITIAL_SPACING}
+                  endSpacing={CHART_END_SPACING}
+                  data={lineData}
+                  color={c.chart}
+                  thickness={2}
+                  hideDataPoints
+                  yAxisColor={c.border}
+                  xAxisColor={c.border}
+                  rulesColor={c.border}
+                  yAxisTextStyle={{ color: c.muted, fontSize: 10 }}
+                  xAxisLabelTextStyle={{
+                    color: c.muted,
+                    fontSize: 10,
+                  }}
+                  xAxisTextNumberOfLines={2}
+                  xAxisLabelsHeight={48}
+                  labelsExtraHeight={18}
+                  maxValue={chartMax}
+                  mostNegativeValue={0}
+                  noOfSections={5}
+                  yAxisLabelWidth={40}
+                  showFractionalValues={false}
+                  roundToDigits={0}
+                  formatYLabel={(lbl) => {
+                    const n = Number(lbl)
+                    return Number.isFinite(n) ? String(Math.round(n)) : String(lbl)
+                  }}
+                  showReferenceLine1
+                  referenceLine1Position={thresholdMg}
+                  referenceLine1Config={{
+                    color: c.threshold,
+                    thickness: 2,
+                    type: 'dashed',
+                    dashWidth: 6,
+                    dashGap: 4,
+                  }}
+                  isAnimated={false}
+                  showScrollIndicator
+                  scrollEventThrottle={16}
+                  onScroll={onChartScroll}
+                  onStartReached={extendPast}
+                  onEndReached={extendFuture}
+                  endReachedOffset={120}
+                />
+              </View>
             </View>
             <View style={styles.statsRow}>
               <View style={styles.statCol}>
@@ -747,7 +1011,46 @@ function makeStyles(c: ThemeColors) {
     entryMeta: { fontSize: 12, color: c.muted, marginTop: 2 },
     removeText: { fontSize: 14, color: c.danger, fontWeight: '600' },
     chartCaption: { fontSize: 12, color: c.muted, marginBottom: 8 },
-    chartBox: { alignItems: 'center', marginVertical: 4 },
+    chartBannerRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      marginBottom: 10,
+    },
+    chartDateBanner: {
+      flex: 1,
+      fontSize: 14,
+      fontWeight: '700',
+      lineHeight: 20,
+    },
+    chartTodayBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      borderRadius: 10,
+      borderWidth: 1,
+    },
+    chartTodayBtnText: { fontSize: 14, fontWeight: '600' },
+    chartRow: {
+      flexDirection: 'row',
+      alignItems: 'stretch',
+      marginVertical: 4,
+    },
+    yAxisTitleWrap: {
+      width: Y_AXIS_TITLE_W,
+      justifyContent: 'center',
+      alignItems: 'center',
+      paddingRight: 2,
+    },
+    yAxisTitle: {
+      fontSize: 12,
+      fontWeight: '700',
+      transform: [{ rotate: '-90deg' }],
+      width: 72,
+      textAlign: 'center',
+    },
     statsRow: { flexDirection: 'row', marginTop: 16, gap: 16 },
     statCol: { flex: 1 },
     statLabel: { fontSize: 12, color: c.muted },
