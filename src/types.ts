@@ -12,6 +12,8 @@ export interface CaffeineEntry {
    * Omitted for custom logs; label may differ from this after editing.
    */
   sourceProductName?: string
+  /** Custom-log icon when there is no `thumbnailUrl`; defaults to ☕ in the UI when omitted. */
+  entryEmoji?: string
 }
 
 export interface AppSettings {

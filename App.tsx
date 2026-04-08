@@ -57,8 +57,14 @@ import { CaffeineSourceList } from './src/CaffeineSourceList'
 import type { CaffeineSourceRow } from './src/caffeineDb'
 import {
   buildCaffeinePickerSections,
-  recentProductNamesFromEntries,
+  isCustomRecentPickRow,
+  recentPickerRowsFromEntries,
+  type CaffeinePickerRow,
 } from './src/caffeineDb'
+import {
+  CAFFEINE_ENTRY_EMOJI_OPTIONS,
+  DEFAULT_ENTRY_EMOJI,
+} from './src/caffeineEmojis'
 import { EntryThumbnail } from './src/EntryThumbnail'
 import { loadState, saveState, type ThemePreference } from './src/storage'
 import type { AppSettings, CaffeineEntry, WeightUnit } from './src/types'
@@ -380,6 +386,7 @@ function Screen() {
   const [now, setNow] = useState(() => new Date())
 
   const [formMg, setFormMg] = useState('95')
+  const [formEntryEmoji, setFormEntryEmoji] = useState(DEFAULT_ENTRY_EMOJI)
   const [consumptionAt, setConsumptionAt] = useState(() => new Date())
   const [showPicker, setShowPicker] = useState(false)
   const [formLabel, setFormLabel] = useState('')
@@ -889,9 +896,16 @@ function Screen() {
       label: fromDb ? fromDb.name : formLabel.trim() || 'Caffeine',
       ...(thumb ? { thumbnailUrl: thumb } : {}),
       ...(fromDb ? { sourceProductName: fromDb.name } : {}),
+      ...(!fromDb
+        ? {
+            entryEmoji:
+              formEntryEmoji.trim() || DEFAULT_ENTRY_EMOJI,
+          }
+        : {}),
     }
     setEntries((prev) => [...prev, entry])
     setFormLabel('')
+    setFormEntryEmoji(DEFAULT_ENTRY_EMOJI)
     setLogEntryDetailVisible(false)
     setLogEntrySourcePreview(null)
     closeLogModal()
@@ -901,6 +915,7 @@ function Screen() {
     consumptionAt,
     formLabel,
     logEntrySourcePreview,
+    formEntryEmoji,
     closeLogModal,
   ])
 
@@ -908,9 +923,18 @@ function Screen() {
     setEntries((prev) => prev.filter((e) => e.id !== id))
   }, [])
 
-  const onPickCaffeineSource = useCallback((row: CaffeineSourceRow) => {
+  const onPickCaffeineSource = useCallback((row: CaffeinePickerRow) => {
     setConsumptionAt(new Date())
     setShowPicker(false)
+    if (isCustomRecentPickRow(row)) {
+      setFormMg(String(row.mg))
+      setFormLabel(row.label === 'Caffeine' ? '' : row.label)
+      setFormEntryEmoji(row.entryEmoji ?? DEFAULT_ENTRY_EMOJI)
+      setLogServingOz('')
+      setLogEntrySourcePreview(null)
+      setLogEntryDetailVisible(true)
+      return
+    }
     setLogServingOz(String(row.oz))
     setLogEntrySourcePreview(row)
     setLogEntryDetailVisible(true)
@@ -919,6 +943,7 @@ function Screen() {
   const openCustomLogEntry = useCallback(() => {
     setFormMg('95')
     setFormLabel('')
+    setFormEntryEmoji(DEFAULT_ENTRY_EMOJI)
     setConsumptionAt(new Date())
     setShowPicker(false)
     setLogServingOz('')
@@ -930,7 +955,7 @@ function Screen() {
     () =>
       buildCaffeinePickerSections(
         sourceSearch,
-        recentProductNamesFromEntries(entries)
+        recentPickerRowsFromEntries(entries)
       ),
     [sourceSearch, entries]
   )
@@ -1399,6 +1424,7 @@ function Screen() {
                         >
                           <EntryThumbnail
                             thumbnailUrl={e.thumbnailUrl}
+                            entryEmoji={e.entryEmoji}
                             surfaceColor={c.surface}
                             borderColor={c.border}
                           />
@@ -1763,7 +1789,53 @@ function Screen() {
                         </>
                       ) : (
                         <>
-                          <Text style={styles.label}>Amount (mg)</Text>
+                          <Text style={styles.label}>Icon</Text>
+                          <RNScrollView
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                            keyboardShouldPersistTaps="handled"
+                            contentContainerStyle={
+                              styles.logEntryEmojiScrollContent
+                            }
+                          >
+                            {CAFFEINE_ENTRY_EMOJI_OPTIONS.map((opt) => {
+                              const selected = formEntryEmoji === opt.emoji
+                              return (
+                                <Pressable
+                                  key={opt.emoji + opt.label}
+                                  onPress={() => setFormEntryEmoji(opt.emoji)}
+                                  style={({ pressed }) => [
+                                    styles.logEntryEmojiChip,
+                                    {
+                                      borderColor: selected
+                                        ? c.accent
+                                        : c.border,
+                                      borderWidth: selected ? 2 : 1,
+                                      backgroundColor: selected
+                                        ? schemeTint(
+                                            c.accent,
+                                            c.surface === '#ffffff'
+                                              ? 0.12
+                                              : 0.2
+                                          ) ?? c.inputBg
+                                        : c.inputBg,
+                                      opacity: pressed ? 0.88 : 1,
+                                    },
+                                  ]}
+                                  accessibilityLabel={opt.label}
+                                  accessibilityRole="button"
+                                  accessibilityState={{ selected }}
+                                >
+                                  <Text style={styles.logEntryEmojiChipGlyph}>
+                                    {opt.emoji}
+                                  </Text>
+                                </Pressable>
+                              )
+                            })}
+                          </RNScrollView>
+                          <Text style={[styles.label, { marginTop: 12 }]}>
+                            Amount (mg)
+                          </Text>
                           <TextInput
                             style={styles.input}
                             keyboardType="number-pad"
@@ -2163,6 +2235,21 @@ function makeStyles(c: ThemeColors) {
       fontWeight: '700',
     },
     logEntryListHint: { marginTop: 6, fontSize: 12 },
+    logEntryEmojiScrollContent: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingVertical: 4,
+      paddingRight: 4,
+    },
+    logEntryEmojiChip: {
+      width: 48,
+      height: 48,
+      borderRadius: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    logEntryEmojiChipGlyph: { fontSize: 26 },
     hint: { marginTop: 8, fontSize: 12, color: c.muted },
     unitRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
     unitChip: {

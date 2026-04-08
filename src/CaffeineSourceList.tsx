@@ -1,6 +1,10 @@
 import { memo, useCallback, type ReactElement } from 'react'
 import { Pressable, SectionList, StyleSheet, Text, View } from 'react-native'
-import type { CaffeinePickerSection, CaffeineSourceRow } from './caffeineDb'
+import {
+  isCustomRecentPickRow,
+  type CaffeinePickerRow,
+  type CaffeinePickerSection,
+} from './caffeineDb'
 import { EntryThumbnail } from './EntryThumbnail'
 
 export type CaffeinePickerPalette = {
@@ -15,7 +19,7 @@ export type CaffeinePickerPalette = {
 type Props = {
   palette: CaffeinePickerPalette
   sections: CaffeinePickerSection[]
-  onPick: (row: CaffeineSourceRow) => void
+  onPick: (row: CaffeinePickerRow) => void
   listHeader: ReactElement | null
   emptyHint?: string
 }
@@ -28,34 +32,70 @@ export const CaffeineSourceList = memo(function CaffeineSourceList({
   emptyHint = 'No matches. Try another search.',
 }: Props) {
   const renderItem = useCallback(
-    ({ item }: { item: CaffeineSourceRow }) => (
-      <Pressable
-        onPress={() => onPick(item)}
-        style={({ pressed }) => [
-          styles.row,
-          { borderBottomColor: palette.border, opacity: pressed ? 0.82 : 1 },
-        ]}
-        accessibilityRole="button"
-        accessibilityLabel={`${item.name}, ${item.mg} milligrams`}
-      >
-        <EntryThumbnail
-          thumbnailUrl={item.image_url}
-          surfaceColor={palette.surface}
-          borderColor={palette.border}
-        />
-        <View style={styles.rowText}>
-          <Text
-            style={[styles.rowTitle, { color: palette.textStrong }]}
-            numberOfLines={2}
+    ({ item }: { item: CaffeinePickerRow }) => {
+      if (isCustomRecentPickRow(item)) {
+        return (
+          <Pressable
+            onPress={() => onPick(item)}
+            style={({ pressed }) => [
+              styles.row,
+              {
+                borderBottomColor: palette.border,
+                opacity: pressed ? 0.82 : 1,
+              },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel={`${item.label}, ${item.mg} milligrams, custom entry`}
           >
-            {item.name}
-          </Text>
-          <Text style={[styles.rowMeta, { color: palette.muted }]}>
-            {item.mg} mg · {item.oz} fl oz · {item.category}
-          </Text>
-        </View>
-      </Pressable>
-    ),
+            <EntryThumbnail
+              thumbnailUrl={undefined}
+              entryEmoji={item.entryEmoji}
+              surfaceColor={palette.surface}
+              borderColor={palette.border}
+            />
+            <View style={styles.rowText}>
+              <Text
+                style={[styles.rowTitle, { color: palette.textStrong }]}
+                numberOfLines={2}
+              >
+                {item.label}
+              </Text>
+              <Text style={[styles.rowMeta, { color: palette.muted }]}>
+                {item.mg} mg · Custom
+              </Text>
+            </View>
+          </Pressable>
+        )
+      }
+      return (
+        <Pressable
+          onPress={() => onPick(item)}
+          style={({ pressed }) => [
+            styles.row,
+            { borderBottomColor: palette.border, opacity: pressed ? 0.82 : 1 },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel={`${item.name}, ${item.mg} milligrams`}
+        >
+          <EntryThumbnail
+            thumbnailUrl={item.image_url}
+            surfaceColor={palette.surface}
+            borderColor={palette.border}
+          />
+          <View style={styles.rowText}>
+            <Text
+              style={[styles.rowTitle, { color: palette.textStrong }]}
+              numberOfLines={2}
+            >
+              {item.name}
+            </Text>
+            <Text style={[styles.rowMeta, { color: palette.muted }]}>
+              {item.mg} mg · {item.oz} fl oz · {item.category}
+            </Text>
+          </View>
+        </Pressable>
+      )
+    },
     [onPick, palette]
   )
 
@@ -85,7 +125,9 @@ export const CaffeineSourceList = memo(function CaffeineSourceList({
   return (
     <SectionList
       sections={sections}
-      keyExtractor={(item) => item.name}
+      keyExtractor={(item) =>
+        isCustomRecentPickRow(item) ? item.recentKey : item.name
+      }
       renderItem={renderItem}
       renderSectionHeader={renderSectionHeader}
       stickySectionHeadersEnabled

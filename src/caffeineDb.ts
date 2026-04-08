@@ -8,10 +8,27 @@ export type CaffeineSourceRow = {
   category: string
 }
 
+/** Logged from “Custom”; re-tap prefills the custom entry sheet. */
+export type CustomRecentPickRow = {
+  pickKind: 'custom'
+  label: string
+  mg: number
+  entryEmoji?: string
+  recentKey: string
+}
+
+export type CaffeinePickerRow = CaffeineSourceRow | CustomRecentPickRow
+
+export function isCustomRecentPickRow(
+  r: CaffeinePickerRow
+): r is CustomRecentPickRow {
+  return 'pickKind' in r && r.pickKind === 'custom'
+}
+
 export type CaffeinePickerSection = {
   title: string
   key: string
-  data: CaffeineSourceRow[]
+  data: CaffeinePickerRow[]
 }
 
 const loaded = raw as CaffeineSourceRow[]
@@ -30,34 +47,64 @@ const DB_NAMES_WITH_CAFFEINE = new Set(
 export type EntryForRecentPick = {
   timestamp: string
   label: string
+  caffeine_mg: number
   sourceProductName?: string
+  entryEmoji?: string
 }
 
 /**
- * Catalog product names for the picker “Recent” section, from **saved** consumption
- * only (newest first, deduped). Uses `sourceProductName` when set; otherwise falls
- * back to `label` only if it exactly matches a database product name.
+ * Recent picker rows (newest first, deduped): catalog items and custom logs.
+ * Custom logs are identified by missing `sourceProductName` except legacy catalog
+ * rows that match DB by label only and have no `entryEmoji`.
  */
-export function recentProductNamesFromEntries(
+export function recentPickerRowsFromEntries(
   entries: readonly EntryForRecentPick[],
-  dbNames: ReadonlySet<string> = DB_NAMES_WITH_CAFFEINE
-): string[] {
+  dbNames: ReadonlySet<string> = DB_NAMES_WITH_CAFFEINE,
+  db: readonly CaffeineSourceRow[] = CAFFEINE_ITEMS_WITH_CAFFEINE
+): CaffeinePickerRow[] {
+  const byName = new Map(db.map((r) => [r.name, r]))
   const sorted = [...entries].sort(
     (a, b) =>
       new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
   )
-  const ordered: string[] = []
+  const ordered: CaffeinePickerRow[] = []
   const seen = new Set<string>()
   for (const e of sorted) {
+    const labelTrim = e.label.trim() || 'Caffeine'
     const explicit = e.sourceProductName?.trim()
-    const fromExplicit =
-      explicit && dbNames.has(explicit) ? explicit : null
-    const labelTrim = e.label.trim()
-    const fromLabel = !fromExplicit && dbNames.has(labelTrim) ? labelTrim : null
-    const key = fromExplicit ?? fromLabel
-    if (!key || seen.has(key)) continue
-    seen.add(key)
-    ordered.push(key)
+
+    let dbRow: CaffeineSourceRow | null = null
+    let dedupeKey: string | null = null
+
+    if (explicit && dbNames.has(explicit)) {
+      dbRow = byName.get(explicit) ?? null
+      dedupeKey = `db:${explicit}`
+    } else if (
+      !explicit &&
+      e.entryEmoji === undefined &&
+      dbNames.has(labelTrim)
+    ) {
+      dbRow = byName.get(labelTrim) ?? null
+      dedupeKey = `db:${labelTrim}`
+    }
+
+    if (dbRow && dedupeKey) {
+      if (seen.has(dedupeKey)) continue
+      seen.add(dedupeKey)
+      ordered.push(dbRow)
+    } else {
+      const recentKey = `custom:${labelTrim}:${e.caffeine_mg}:${e.entryEmoji ?? ''}`
+      if (seen.has(recentKey)) continue
+      seen.add(recentKey)
+      ordered.push({
+        pickKind: 'custom',
+        label: labelTrim,
+        mg: e.caffeine_mg,
+        entryEmoji: e.entryEmoji,
+        recentKey,
+      })
+    }
+
     if (ordered.length >= 30) break
   }
   return ordered
@@ -70,7 +117,7 @@ export function recentProductNamesFromEntries(
  */
 export function buildCaffeinePickerSections(
   query: string,
-  recentNames: readonly string[],
+  recentRows: readonly CaffeinePickerRow[],
   db: readonly CaffeineSourceRow[] = CAFFEINE_ITEMS_WITH_CAFFEINE
 ): CaffeinePickerSection[] {
   const q = query.trim().toLowerCase()
@@ -86,14 +133,16 @@ export function buildCaffeinePickerSections(
       : []
   }
 
-  const byName = new Map(db.map((r) => [r.name, r]))
-  const recentItems: CaffeineSourceRow[] = []
-  const seen = new Set<string>()
-  for (const n of recentNames) {
-    const r = byName.get(n)
-    if (r && match(r) && !seen.has(r.name)) {
+  const recentItems: CaffeinePickerRow[] = []
+  const recentSeen = new Set<string>()
+  for (const r of recentRows) {
+    if (isCustomRecentPickRow(r)) {
+      if (recentSeen.has(r.recentKey)) continue
+      recentSeen.add(r.recentKey)
       recentItems.push(r)
-      seen.add(r.name)
+    } else if (match(r) && !recentSeen.has(r.name)) {
+      recentSeen.add(r.name)
+      recentItems.push(r)
     }
   }
 
@@ -102,7 +151,11 @@ export function buildCaffeinePickerSections(
     sections.push({ title: 'Recent', key: 'recent', data: recentItems })
   }
 
-  const recentSet = new Set(recentItems.map((r) => r.name))
+  const recentSet = new Set(
+    recentItems.map((r) =>
+      isCustomRecentPickRow(r) ? r.recentKey : r.name
+    )
+  )
   const byCat = new Map<string, CaffeineSourceRow[]>()
   for (const row of db) {
     if (!match(row)) continue

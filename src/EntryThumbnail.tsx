@@ -18,10 +18,13 @@ const entryThumbEmojiText = { fontSize: 22 }
 
 export const EntryThumbnail = memo(function EntryThumbnail({
   thumbnailUrl,
+  entryEmoji,
   surfaceColor,
   borderColor,
 }: {
   thumbnailUrl?: string
+  /** Shown when there is no usable image (e.g. custom log). */
+  entryEmoji?: string
   surfaceColor: string
   borderColor: string
 }) {
@@ -45,8 +48,11 @@ export const EntryThumbnail = memo(function EntryThumbnail({
       ]}
     >
       {showEmoji ? (
-        <Text style={entryThumbEmojiText} accessibilityLabel="Coffee">
-          ☕
+        <Text
+          style={entryThumbEmojiText}
+          accessibilityLabel={entryEmoji?.trim() ? 'Entry icon' : 'Coffee'}
+        >
+          {entryEmoji?.trim() || '☕'}
         </Text>
       ) : (
         <Image
