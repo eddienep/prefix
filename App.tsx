@@ -52,6 +52,10 @@ import {
   weightToKg,
   type ChartPoint,
 } from './src/caffeineMath'
+import { CaffeineSourceList } from './src/CaffeineSourceList'
+import type { CaffeineSourceRow } from './src/caffeineDb'
+import { buildCaffeinePickerSections } from './src/caffeineDb'
+import { EntryThumbnail } from './src/EntryThumbnail'
 import { loadState, saveState, type ThemePreference } from './src/storage'
 import type { AppSettings, CaffeineEntry, WeightUnit } from './src/types'
 
@@ -149,66 +153,6 @@ const ChartNowTimeOverlayLabel = memo(function ChartNowTimeOverlayLabel({
     </Text>
   )
 })
-
-const ENTRY_THUMB_SIZE = 44
-
-const EntryThumbnail = memo(function EntryThumbnail({
-  thumbnailUrl,
-  surfaceColor,
-  borderColor,
-}: {
-  thumbnailUrl?: string
-  surfaceColor: string
-  borderColor: string
-}) {
-  const trimmed = thumbnailUrl?.trim() ?? ''
-  const [failed, setFailed] = useState(false)
-
-  useEffect(() => {
-    setFailed(false)
-  }, [trimmed])
-
-  const showEmoji = !trimmed || failed
-
-  return (
-    <View
-      style={[
-        entryThumbBase,
-        {
-          borderColor,
-          backgroundColor: surfaceColor,
-        },
-      ]}
-    >
-      {showEmoji ? (
-        <Text style={entryThumbEmojiText} accessibilityLabel="Coffee">
-          ☕
-        </Text>
-      ) : (
-        <Image
-          source={{ uri: trimmed }}
-          style={StyleSheet.absoluteFillObject}
-          resizeMode="cover"
-          onError={() => setFailed(true)}
-          accessibilityIgnoresInvertColors
-        />
-      )}
-    </View>
-  )
-})
-
-const entryThumbBase = {
-  width: ENTRY_THUMB_SIZE,
-  height: ENTRY_THUMB_SIZE,
-  borderRadius: 10,
-  borderWidth: 1,
-  overflow: 'hidden' as const,
-  alignItems: 'center' as const,
-  justifyContent: 'center' as const,
-  marginRight: 12,
-}
-
-const entryThumbEmojiText = { fontSize: 22 }
 
 const PALETTE = {
   light: {
@@ -442,6 +386,10 @@ function Screen() {
   const [showPicker, setShowPicker] = useState(false)
   const [formLabel, setFormLabel] = useState('')
   const [formThumbnailUrl, setFormThumbnailUrl] = useState('')
+  const [sourceSearch, setSourceSearch] = useState('')
+  const [recentCaffeineSourceNames, setRecentCaffeineSourceNames] = useState<
+    string[]
+  >([])
   const [logModalVisible, setLogModalVisible] = useState(false)
   const [showHomeScrollTopBtn, setShowHomeScrollTopBtn] = useState(false)
   const homeScrollRef = useRef<ComponentRef<typeof ScrollView> | null>(null)
@@ -486,6 +434,7 @@ function Screen() {
       setEntries(s.entries)
       setSettings(s.settings)
       setThemePreference(s.themePreference)
+      setRecentCaffeineSourceNames(s.recentCaffeineSourceNames ?? [])
       setHydrated(true)
     })()
     return () => {
@@ -495,8 +444,13 @@ function Screen() {
 
   useEffect(() => {
     if (!hydrated) return
-    void saveState({ entries, settings, themePreference })
-  }, [entries, settings, themePreference, hydrated])
+    void saveState({
+      entries,
+      settings,
+      themePreference,
+      recentCaffeineSourceNames,
+    })
+  }, [entries, settings, themePreference, recentCaffeineSourceNames, hydrated])
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 30_000)
@@ -844,6 +798,7 @@ function Screen() {
   const closeLogModal = useCallback(() => {
     setLogModalVisible(false)
     setShowPicker(false)
+    setSourceSearch('')
   }, [])
 
   useEffect(() => {
@@ -903,6 +858,33 @@ function Screen() {
   const removeEntry = useCallback((id: string) => {
     setEntries((prev) => prev.filter((e) => e.id !== id))
   }, [])
+
+  const onPickCaffeineSource = useCallback((row: CaffeineSourceRow) => {
+    setFormMg(String(row.mg))
+    setFormLabel(row.name)
+    setFormThumbnailUrl(row.image_url?.trim() ? row.image_url : '')
+    setRecentCaffeineSourceNames((prev) => {
+      const next = [row.name, ...prev.filter((n) => n !== row.name)]
+      return next.slice(0, 30)
+    })
+  }, [])
+
+  const caffeinePickerSections = useMemo(
+    () => buildCaffeinePickerSections(sourceSearch, recentCaffeineSourceNames),
+    [sourceSearch, recentCaffeineSourceNames]
+  )
+
+  const caffeinePickerPalette = useMemo(
+    () => ({
+      textStrong: c.textStrong,
+      text: c.text,
+      muted: c.muted,
+      surface: c.surface,
+      border: c.border,
+      bg: c.bg,
+    }),
+    [c]
+  )
 
   const sortedEntries = useMemo(
     () =>
@@ -1399,7 +1381,7 @@ function Screen() {
               styles.logFab,
               { backgroundColor: c.accent, opacity: pressed ? 0.9 : 1 },
             ]}
-            accessibilityLabel="Log caffeine"
+            accessibilityLabel="Log Caffeine"
             accessibilityRole="button"
           >
             <Ionicons name="add" size={30} color="#fff" />
@@ -1492,7 +1474,7 @@ function Screen() {
             ]}
           >
             <Text style={[styles.logModalTitle, { color: c.textStrong }]}>
-              Log caffeine
+              Log Caffeine
             </Text>
             <Pressable
               onPress={closeLogModal}
@@ -1505,97 +1487,117 @@ function Screen() {
             </Pressable>
           </View>
           <LogModalBodyHost>
-            <RNScrollView
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-              automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
-              keyboardDismissMode={
-                Platform.OS === 'ios' ? 'interactive' : 'on-drag'
-              }
-              bounces={Platform.OS !== 'ios'}
-              alwaysBounceVertical={false}
-              contentContainerStyle={[
-                styles.logModalScrollContent,
-                {
-                  paddingHorizontal: 16,
-                  paddingTop: 16,
-                  paddingBottom: 24,
-                },
-              ]}
-            >
-              <Text style={styles.label}>Amount (mg)</Text>
-              <TextInput
-                style={styles.input}
-                keyboardType="number-pad"
-                value={formMg}
-                onChangeText={setFormMg}
-              />
-              <Text style={[styles.label, { marginTop: 12 }]}>Time</Text>
-              <Pressable
-                onPress={() => setShowPicker(true)}
-                style={styles.dateBtn}
+            <View style={styles.logModalBodyColumn}>
+              <RNScrollView
+                style={styles.logModalFormScroll}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+                automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+                keyboardDismissMode={
+                  Platform.OS === 'ios' ? 'interactive' : 'on-drag'
+                }
+                bounces={Platform.OS !== 'ios'}
+                nestedScrollEnabled
+                contentContainerStyle={styles.logModalFormScrollContent}
               >
-                <Text style={styles.dateBtnText}>
-                  {dayjs(consumptionAt).format('lll')}
-                </Text>
-              </Pressable>
-              {showPicker && (
-                <DateTimePicker
-                  value={consumptionAt}
-                  mode="datetime"
-                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                  onChange={(_, date) => {
-                    if (Platform.OS === 'android') setShowPicker(false)
-                    if (date) setConsumptionAt(date)
-                  }}
+                <Text style={styles.label}>Amount (mg)</Text>
+                <TextInput
+                  style={styles.input}
+                  keyboardType="number-pad"
+                  value={formMg}
+                  onChangeText={setFormMg}
                 />
-              )}
-              {Platform.OS === 'ios' && showPicker && (
+                <Text style={[styles.label, { marginTop: 12 }]}>Time</Text>
                 <Pressable
-                  style={styles.donePicker}
-                  onPress={() => setShowPicker(false)}
+                  onPress={() => setShowPicker(true)}
+                  style={styles.dateBtn}
                 >
-                  <Text style={styles.donePickerText}>Done</Text>
+                  <Text style={styles.dateBtnText}>
+                    {dayjs(consumptionAt).format('lll')}
+                  </Text>
                 </Pressable>
-              )}
-              <Text style={[styles.label, { marginTop: 12 }]}>
-                Label (optional)
-              </Text>
-              <TextInput
-                style={styles.input}
-                placeholder="e.g. coffee"
-                placeholderTextColor={c.muted}
-                value={formLabel}
-                onChangeText={setFormLabel}
-              />
-              <Text style={[styles.label, { marginTop: 12 }]}>
-                Thumbnail URL (optional)
-              </Text>
-              <TextInput
-                style={styles.input}
-                placeholder="https://…"
-                placeholderTextColor={c.muted}
-                value={formThumbnailUrl}
-                onChangeText={setFormThumbnailUrl}
-                autoCapitalize="none"
-                autoCorrect={false}
-                keyboardType="url"
-              />
-              <Pressable style={styles.primaryBtn} onPress={addEntry}>
-                <Text style={styles.primaryBtnText}>Add entry</Text>
-              </Pressable>
-              <View style={styles.presetRow}>
-                {PRESETS.map((p) => (
+                {showPicker && (
+                  <DateTimePicker
+                    value={consumptionAt}
+                    mode="datetime"
+                    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                    onChange={(_, date) => {
+                      if (Platform.OS === 'android') setShowPicker(false)
+                      if (date) setConsumptionAt(date)
+                    }}
+                  />
+                )}
+                {Platform.OS === 'ios' && showPicker && (
                   <Pressable
-                    key={p.label}
-                    onPress={() => setFormMg(String(p.mg))}
-                    style={styles.presetChip}
+                    style={styles.donePicker}
+                    onPress={() => setShowPicker(false)}
                   >
-                    <Text style={styles.presetChipText}>{p.label}</Text>
+                    <Text style={styles.donePickerText}>Done</Text>
                   </Pressable>
-                ))}
+                )}
+                <Text style={[styles.label, { marginTop: 12 }]}>
+                  Label (optional)
+                </Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g. coffee"
+                  placeholderTextColor={c.muted}
+                  value={formLabel}
+                  onChangeText={setFormLabel}
+                />
+                <Text style={[styles.label, { marginTop: 12 }]}>
+                  Thumbnail URL (optional)
+                </Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="https://…"
+                  placeholderTextColor={c.muted}
+                  value={formThumbnailUrl}
+                  onChangeText={setFormThumbnailUrl}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="url"
+                />
+                <Pressable style={styles.primaryBtn} onPress={addEntry}>
+                  <Text style={styles.primaryBtnText}>Add entry</Text>
+                </Pressable>
+                <View style={styles.presetRow}>
+                  {PRESETS.map((p) => (
+                    <Pressable
+                      key={p.label}
+                      onPress={() => setFormMg(String(p.mg))}
+                      style={styles.presetChip}
+                    >
+                      <Text style={styles.presetChipText}>{p.label}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </RNScrollView>
+              <View
+                style={[
+                  styles.logModalSearchBlock,
+                  { borderBottomColor: c.border },
+                ]}
+              >
+                <Text style={styles.label}>Search database</Text>
+                <TextInput
+                  style={[styles.input, { marginTop: 6 }]}
+                  placeholder="Filter by name or category (Coffee, Tea, …)"
+                  placeholderTextColor={c.muted}
+                  value={sourceSearch}
+                  onChangeText={setSourceSearch}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  returnKeyType="search"
+                />
               </View>
-            </RNScrollView>
+              <CaffeineSourceList
+                palette={caffeinePickerPalette}
+                sections={caffeinePickerSections}
+                onPick={onPickCaffeineSource}
+                listHeader={null}
+              />
+            </View>
           </LogModalBodyHost>
           </View>
         </>
@@ -1675,6 +1677,27 @@ function makeStyles(c: ThemeColors) {
       position: 'absolute',
       zIndex: 200,
       elevation: 200,
+      flexDirection: 'column',
+    },
+    logModalBodyColumn: {
+      flex: 1,
+      minHeight: 0,
+    },
+    logModalFormScroll: {
+      flexGrow: 0,
+      maxHeight: 360,
+      minHeight: 0,
+    },
+    logModalFormScrollContent: {
+      paddingHorizontal: 16,
+      paddingTop: 16,
+      paddingBottom: 12,
+    },
+    logModalSearchBlock: {
+      paddingHorizontal: 16,
+      paddingTop: 8,
+      paddingBottom: 10,
+      borderBottomWidth: StyleSheet.hairlineWidth,
     },
     logModalHeaderBar: {
       flexDirection: 'row',
@@ -1687,9 +1710,6 @@ function makeStyles(c: ThemeColors) {
     logModalCloseBtn: {
       padding: 8,
       marginRight: -4,
-    },
-    logModalScrollContent: {
-      flexGrow: 1,
     },
     logModalTitle: {
       fontSize: 18,

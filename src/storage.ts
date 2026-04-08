@@ -10,6 +10,8 @@ export interface PersistedState {
   entries: CaffeineEntry[]
   settings: AppSettings
   themePreference: ThemePreference
+  /** Product names from the caffeine database, most-recent first (for Log modal). */
+  recentCaffeineSourceNames?: string[]
 }
 
 export async function loadState(): Promise<PersistedState> {
@@ -20,6 +22,7 @@ export async function loadState(): Promise<PersistedState> {
         entries: [],
         settings: { ...DEFAULT_SETTINGS },
         themePreference: 'system',
+        recentCaffeineSourceNames: undefined,
       }
     }
     const parsed = JSON.parse(raw) as Partial<PersistedState> & {
@@ -39,12 +42,16 @@ export async function loadState(): Promise<PersistedState> {
         weightUnit: parsed.settings?.weightUnit === 'lb' ? 'lb' : 'kg',
       },
       themePreference,
+      recentCaffeineSourceNames: Array.isArray(parsed.recentCaffeineSourceNames)
+        ? parsed.recentCaffeineSourceNames.filter((x) => typeof x === 'string')
+        : undefined,
     }
   } catch {
     return {
       entries: [],
       settings: { ...DEFAULT_SETTINGS },
       themePreference: 'system',
+      recentCaffeineSourceNames: undefined,
     }
   }
 }
