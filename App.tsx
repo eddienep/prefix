@@ -9,6 +9,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ComponentRef,
   type ReactNode,
 } from 'react'
 import {
@@ -23,13 +24,18 @@ import {
   BackHandler,
   Platform,
   Pressable,
-  ScrollView,
+  ScrollView as RNScrollView,
   StyleSheet,
   Text,
   TextInput,
   useColorScheme,
   View,
 } from 'react-native'
+import {
+  GestureHandlerRootView,
+  ScrollView,
+  Swipeable,
+} from 'react-native-gesture-handler'
 import { LineChart } from 'react-native-gifted-charts'
 import {
   SafeAreaProvider,
@@ -377,7 +383,7 @@ function Screen() {
   const [formLabel, setFormLabel] = useState('')
   const [logModalVisible, setLogModalVisible] = useState(false)
   const [showHomeScrollTopBtn, setShowHomeScrollTopBtn] = useState(false)
-  const homeScrollRef = useRef<ScrollView>(null)
+  const homeScrollRef = useRef<ComponentRef<typeof ScrollView> | null>(null)
   const homeScrollTopOpacity = useRef(new Animated.Value(0)).current
 
   const [route, setRoute] = useState<'home' | 'settings'>('home')
@@ -476,7 +482,7 @@ function Screen() {
     dayjs().format('dddd, MMMM D, YYYY')
   )
 
-  const chartScrollRef = useRef<ScrollView | null>(null)
+  const chartScrollRef = useRef<ComponentRef<typeof RNScrollView> | null>(null)
   const scrollXRef = useRef(0)
   /** Visible-day banner: skip setState when center index unchanged during scroll. */
   const chartBannerIdxRef = useRef(-1)
@@ -867,7 +873,7 @@ function Screen() {
           style={styles.flex}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <ScrollView
+          <RNScrollView
             contentContainerStyle={[
               styles.scrollContent,
               { paddingBottom: 24 + insets.bottom },
@@ -982,7 +988,7 @@ function Screen() {
             >
               <Text style={styles.primaryBtnText}>Save changes</Text>
             </Pressable>
-          </ScrollView>
+          </RNScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
     )
@@ -1177,7 +1183,7 @@ function Screen() {
                       dashGap: 4,
                     }}
                     isAnimated={false}
-                    showScrollIndicator
+                    showScrollIndicator={false}
                     scrollEventThrottle={16}
                     onScroll={onChartScroll}
                     onStartReached={extendPast}
@@ -1243,28 +1249,48 @@ function Screen() {
                   {group.entries.map((e, ei) => {
                     const isLastInGroup = ei === group.entries.length - 1
                     return (
-                      <View
+                      <Swipeable
                         key={e.id}
-                        style={[
-                          styles.entryRow,
-                          isLastInGroup && styles.entryRowGroupLast,
-                        ]}
+                        friction={2}
+                        overshootRight={false}
+                        renderRightActions={() => (
+                          <Pressable
+                            onPress={() => removeEntry(e.id)}
+                            style={({ pressed }) => [
+                              styles.entrySwipeDelete,
+                              {
+                                backgroundColor: c.danger,
+                                opacity: pressed ? 0.88 : 1,
+                              },
+                            ]}
+                            accessibilityLabel="Delete entry"
+                            accessibilityRole="button"
+                          >
+                            <Ionicons
+                              name="trash-outline"
+                              size={22}
+                              color="#fff"
+                            />
+                          </Pressable>
+                        )}
                       >
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.entryTitle}>
-                            {e.caffeine_mg} mg · {e.label}
-                          </Text>
-                          <Text style={styles.entryMeta}>
-                            {dayjs(e.timestamp).format('lll')}
-                          </Text>
-                        </View>
-                        <Pressable
-                          onPress={() => removeEntry(e.id)}
-                          hitSlop={8}
+                        <View
+                          style={[
+                            styles.entryRow,
+                            { backgroundColor: c.bg },
+                            isLastInGroup && styles.entryRowGroupLast,
+                          ]}
                         >
-                          <Text style={styles.removeText}>Remove</Text>
-                        </Pressable>
-                      </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.entryTitle}>
+                              {e.caffeine_mg} mg · {e.label}
+                            </Text>
+                            <Text style={styles.entryMeta}>
+                              {dayjs(e.timestamp).format('lll')}
+                            </Text>
+                          </View>
+                        </View>
+                      </Swipeable>
                     )
                   })}
                 </View>
@@ -1401,7 +1427,7 @@ function Screen() {
             </Pressable>
           </View>
           <LogModalBodyHost>
-            <ScrollView
+            <RNScrollView
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
               automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
@@ -1478,7 +1504,7 @@ function Screen() {
                   </Pressable>
                 ))}
               </View>
-            </ScrollView>
+            </RNScrollView>
           </LogModalBodyHost>
           </View>
         </>
@@ -1754,7 +1780,14 @@ function makeStyles(c: ThemeColors) {
     },
     entryTitle: { fontSize: 15, fontWeight: '600', color: c.textStrong },
     entryMeta: { fontSize: 12, color: c.muted, marginTop: 2 },
-    removeText: { fontSize: 14, color: c.danger, fontWeight: '600' },
+    entrySwipeDelete: {
+      width: 76,
+      alignSelf: 'stretch',
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginLeft: 8,
+      borderRadius: 10,
+    },
     chartCaption: { fontSize: 12, color: c.muted, marginBottom: 8 },
     chartBannerRow: {
       flexDirection: 'row',
@@ -1781,14 +1814,15 @@ function makeStyles(c: ThemeColors) {
     chartRow: {
       flexDirection: 'row',
       alignItems: 'stretch',
-      marginVertical: 4,
+      marginTop: 4,
+      marginBottom: 0,
     },
     /** Horizontal bleed is applied per-screen with safe-area insets (see chart row `style`). */
     chartRowFullBleed: {
       alignSelf: 'stretch',
     },
     activeCaffeineSection: {
-      marginBottom: 14,
+      marginBottom: 0,
     },
     consumptionSection: {
       marginBottom: 14,
@@ -1838,8 +1872,10 @@ function schemeTint(hex: string, alpha: number): string | undefined {
 
 export default function App() {
   return (
-    <SafeAreaProvider>
-      <Screen />
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <Screen />
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   )
 }
