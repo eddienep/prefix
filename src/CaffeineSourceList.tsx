@@ -87,6 +87,7 @@ export const CaffeineSourceList = memo(function CaffeineSourceList({
         >
           <EntryThumbnail
             thumbnailUrl={item.image_url}
+            entryEmoji={item.listEmoji}
             surfaceColor={palette.surface}
             borderColor={palette.border}
           />

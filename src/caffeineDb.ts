@@ -7,6 +7,8 @@ export type CaffeineSourceRow = {
   mg: number
   image_url: string
   category: string
+  /** Picker / preview when `image_url` is empty (generic shortcuts). */
+  listEmoji?: string
 }
 
 /** Logged from “Custom”; re-tap prefills the custom entry sheet. */

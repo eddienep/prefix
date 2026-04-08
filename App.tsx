@@ -913,6 +913,7 @@ function Screen() {
     }
     if (!Number.isFinite(mg) || mg <= 0) return
     const thumb = fromDb?.image_url?.trim()
+    const genericEmoji = fromDb?.listEmoji?.trim()
     const entry: CaffeineEntry = {
       id: newId(),
       timestamp: consumptionAt.toISOString(),
@@ -925,7 +926,9 @@ function Screen() {
             entryEmoji:
               formEntryEmoji.trim() || DEFAULT_ENTRY_EMOJI,
           }
-        : {}),
+        : !thumb && genericEmoji
+          ? { entryEmoji: genericEmoji }
+          : {}),
     }
     setEntries((prev) => [...prev, entry])
     setFormLabel('')
@@ -1840,6 +1843,7 @@ function Screen() {
                       >
                         <EntryThumbnail
                           thumbnailUrl={logEntrySourcePreview.image_url}
+                          entryEmoji={logEntrySourcePreview.listEmoji}
                           surfaceColor={c.surface}
                           borderColor={c.border}
                         />
