@@ -16,6 +16,9 @@ const entryThumbBase = {
 
 const entryThumbEmojiText = { fontSize: 22 }
 
+/** Letterboxing behind URL images (longest side fits the square). */
+const THUMB_IMAGE_BG = '#ffffff'
+
 export const EntryThumbnail = memo(function EntryThumbnail({
   thumbnailUrl,
   entryEmoji,
@@ -36,6 +39,7 @@ export const EntryThumbnail = memo(function EntryThumbnail({
   }, [trimmed])
 
   const showEmoji = !trimmed || failed
+  const thumbBg = showEmoji ? surfaceColor : THUMB_IMAGE_BG
 
   return (
     <View
@@ -43,7 +47,7 @@ export const EntryThumbnail = memo(function EntryThumbnail({
         entryThumbBase,
         {
           borderColor,
-          backgroundColor: surfaceColor,
+          backgroundColor: thumbBg,
         },
       ]}
     >
@@ -58,7 +62,7 @@ export const EntryThumbnail = memo(function EntryThumbnail({
         <Image
           source={{ uri: trimmed }}
           style={StyleSheet.absoluteFillObject}
-          resizeMode="cover"
+          resizeMode="contain"
           onError={() => setFailed(true)}
           accessibilityIgnoresInvertColors
         />
