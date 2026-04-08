@@ -336,6 +336,11 @@ function Screen() {
   const openSettings = useCallback(() => {
     setDraftSettings({ ...settings })
     setDraftTheme(themePreference)
+    // Home unmounts; the chart ScrollView resets to 0 but these refs kept old values,
+    // so the "now" line and date banner desync until "Today" unless we re-run initial scroll.
+    didInitialChartScrollRef.current = false
+    scrollXRef.current = 0
+    chartBannerIdxRef.current = -1
     setRoute('settings')
   }, [settings, themePreference])
 
@@ -673,7 +678,8 @@ function Screen() {
   ])
 
   useEffect(() => {
-    if (!hydrated || fullSeries.length < 2 || didInitialChartScrollRef.current) {
+    if (!hydrated || route !== 'home') return
+    if (fullSeries.length < 2 || didInitialChartScrollRef.current) {
       return
     }
     const rawLeft =
@@ -693,6 +699,7 @@ function Screen() {
     return () => clearTimeout(timer)
   }, [
     hydrated,
+    route,
     fullSeries.length,
     midnightTodayIndex,
     chartTotalWidth,
