@@ -47,6 +47,7 @@ import localizedFormat from 'dayjs/plugin/localizedFormat'
 import {
   buildSeries,
   dateWhenBelowThreshold,
+  scaledCaffeineMg,
   sleepThresholdMg,
   totalCaffeineAt,
   weightToKg,
@@ -388,6 +389,8 @@ function Screen() {
   const [logEntryDetailVisible, setLogEntryDetailVisible] = useState(false)
   const [logEntrySourcePreview, setLogEntrySourcePreview] =
     useState<CaffeineSourceRow | null>(null)
+  /** Serving size (fl oz) when confirming a database pick; caffeine scales from list mg/oz. */
+  const [logServingOz, setLogServingOz] = useState('')
   const [showHomeScrollTopBtn, setShowHomeScrollTopBtn] = useState(false)
   const homeScrollRef = useRef<ComponentRef<typeof ScrollView> | null>(null)
   const homeScrollTopOpacity = useRef(new Animated.Value(0)).current
@@ -793,12 +796,14 @@ function Screen() {
   const closeLogEntryDetail = useCallback(() => {
     setLogEntryDetailVisible(false)
     setLogEntrySourcePreview(null)
+    setLogServingOz('')
     setShowPicker(false)
   }, [])
 
   const closeLogModal = useCallback(() => {
     setLogEntryDetailVisible(false)
     setLogEntrySourcePreview(null)
+    setLogServingOz('')
     setLogModalVisible(false)
     setShowPicker(false)
     setSourceSearch('')
@@ -850,9 +855,31 @@ function Screen() {
     homeScrollRef.current?.scrollTo({ y: 0, animated: true })
   }, [])
 
+  const logDbComputedMg = useMemo(() => {
+    const prev = logEntrySourcePreview
+    if (!prev) return null
+    const oz = Number(logServingOz.trim().replace(',', '.'))
+    const mg = scaledCaffeineMg(oz, prev.oz, prev.mg)
+    return Number.isFinite(mg) ? mg : null
+  }, [logEntrySourcePreview, logServingOz])
+
+  const logAddEntryEnabled = useMemo(() => {
+    if (logEntrySourcePreview) {
+      return logDbComputedMg != null && logDbComputedMg > 0
+    }
+    const mg = Number(formMg)
+    return Number.isFinite(mg) && mg > 0
+  }, [logEntrySourcePreview, logDbComputedMg, formMg])
+
   const addEntry = useCallback(() => {
     const fromDb = logEntrySourcePreview
-    const mg = fromDb ? fromDb.mg : Number(formMg)
+    let mg: number
+    if (fromDb) {
+      const oz = Number(logServingOz.trim().replace(',', '.'))
+      mg = scaledCaffeineMg(oz, fromDb.oz, fromDb.mg)
+    } else {
+      mg = Number(formMg)
+    }
     if (!Number.isFinite(mg) || mg <= 0) return
     const thumb = fromDb?.image_url?.trim()
     const entry: CaffeineEntry = {
@@ -868,7 +895,14 @@ function Screen() {
     setLogEntryDetailVisible(false)
     setLogEntrySourcePreview(null)
     closeLogModal()
-  }, [formMg, consumptionAt, formLabel, logEntrySourcePreview, closeLogModal])
+  }, [
+    formMg,
+    logServingOz,
+    consumptionAt,
+    formLabel,
+    logEntrySourcePreview,
+    closeLogModal,
+  ])
 
   const removeEntry = useCallback((id: string) => {
     setEntries((prev) => prev.filter((e) => e.id !== id))
@@ -877,6 +911,7 @@ function Screen() {
   const onPickCaffeineSource = useCallback((row: CaffeineSourceRow) => {
     setConsumptionAt(new Date())
     setShowPicker(false)
+    setLogServingOz(String(row.oz))
     setLogEntrySourcePreview(row)
     setLogEntryDetailVisible(true)
   }, [])
@@ -886,6 +921,7 @@ function Screen() {
     setFormLabel('')
     setConsumptionAt(new Date())
     setShowPicker(false)
+    setLogServingOz('')
     setLogEntrySourcePreview(null)
     setLogEntryDetailVisible(true)
   }, [])
@@ -1647,7 +1683,25 @@ function Screen() {
                     >
                       {logEntrySourcePreview ? (
                         <>
-                          <Text style={styles.label}>Amount (mg)</Text>
+                          <Text style={styles.label}>Serving (fl oz)</Text>
+                          <TextInput
+                            style={styles.input}
+                            keyboardType="decimal-pad"
+                            value={logServingOz}
+                            onChangeText={setLogServingOz}
+                          />
+                          <Text
+                            style={[
+                              styles.logEntryListHint,
+                              { color: c.muted },
+                            ]}
+                          >
+                            Listed: {logEntrySourcePreview.mg} mg per{' '}
+                            {logEntrySourcePreview.oz} fl oz
+                          </Text>
+                          <Text style={[styles.label, { marginTop: 12 }]}>
+                            Caffeine (mg)
+                          </Text>
                           <View
                             style={[
                               styles.logEntryReadonlyField,
@@ -1660,7 +1714,9 @@ function Screen() {
                                 { color: c.textStrong },
                               ]}
                             >
-                              {logEntrySourcePreview.mg}
+                              {logDbComputedMg != null
+                                ? String(logDbComputedMg)
+                                : '—'}
                             </Text>
                           </View>
                         </>
@@ -1718,7 +1774,14 @@ function Screen() {
                           <Text style={styles.donePickerText}>Done</Text>
                         </Pressable>
                       )}
-                      <Pressable style={styles.primaryBtn} onPress={addEntry}>
+                      <Pressable
+                        style={[
+                          styles.primaryBtn,
+                          !logAddEntryEnabled && styles.primaryBtnDisabled,
+                        ]}
+                        disabled={!logAddEntryEnabled}
+                        onPress={addEntry}
+                      >
                         <Text style={styles.primaryBtnText}>Add entry</Text>
                       </Pressable>
                     </RNScrollView>
@@ -2031,6 +2094,7 @@ function makeStyles(c: ThemeColors) {
       fontSize: 16,
       fontWeight: '700',
     },
+    logEntryListHint: { marginTop: 6, fontSize: 12 },
     hint: { marginTop: 8, fontSize: 12, color: c.muted },
     unitRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
     unitChip: {
@@ -2066,6 +2130,7 @@ function makeStyles(c: ThemeColors) {
       borderRadius: 10,
       alignItems: 'center',
     },
+    primaryBtnDisabled: { opacity: 0.45 },
     primaryBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
     entryRow: {
       flexDirection: 'row',

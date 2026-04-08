@@ -115,3 +115,18 @@ export function dateWhenBelowThreshold(
   }
   return null
 }
+
+/**
+ * Scale catalog caffeine (mg) by serving size (fl oz).
+ * Uses catalog fl oz as reference; if catalog oz is 0 or invalid, treats as 1 fl oz.
+ */
+export function scaledCaffeineMg(
+  servingFlOz: number,
+  catalogFlOz: number,
+  catalogMg: number
+): number {
+  if (!Number.isFinite(servingFlOz) || servingFlOz < 0) return NaN
+  if (!Number.isFinite(catalogMg)) return NaN
+  const refOz = catalogFlOz > 0 && Number.isFinite(catalogFlOz) ? catalogFlOz : 1
+  return Math.round((servingFlOz / refOz) * catalogMg)
+}
