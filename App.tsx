@@ -17,6 +17,7 @@ import {
   Animated,
   Dimensions,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   type LayoutChangeEvent,
   type NativeScrollEvent,
@@ -924,6 +925,7 @@ function Screen() {
   }, [])
 
   const onPickCaffeineSource = useCallback((row: CaffeinePickerRow) => {
+    Keyboard.dismiss()
     setConsumptionAt(new Date())
     setShowPicker(false)
     if (isCustomRecentPickRow(row)) {
@@ -941,6 +943,7 @@ function Screen() {
   }, [])
 
   const openCustomLogEntry = useCallback(() => {
+    Keyboard.dismiss()
     setFormMg('95')
     setFormLabel('')
     setFormEntryEmoji(DEFAULT_ENTRY_EMOJI)
@@ -1561,7 +1564,10 @@ function Screen() {
             ]}
           >
             <Pressable
-              onPress={closeLogModal}
+              onPress={() => {
+                Keyboard.dismiss()
+                closeLogModal()
+              }}
               style={({ pressed }) => [
                 styles.backBtn,
                 { alignSelf: 'center', opacity: pressed ? 0.7 : 1 },
@@ -1605,10 +1611,15 @@ function Screen() {
                       autoCapitalize="none"
                       autoCorrect={false}
                       returnKeyType="search"
+                      onSubmitEditing={() => Keyboard.dismiss()}
+                      blurOnSubmit
                     />
                     {sourceSearch.length > 0 ? (
                       <Pressable
-                        onPress={() => setSourceSearch('')}
+                        onPress={() => {
+                          setSourceSearch('')
+                          Keyboard.dismiss()
+                        }}
                         style={styles.logModalSearchClearBtn}
                         hitSlop={8}
                         accessibilityLabel="Clear search"

@@ -1,5 +1,13 @@
 import { memo, useCallback, type ReactElement } from 'react'
-import { Pressable, SectionList, StyleSheet, Text, View } from 'react-native'
+import {
+  Keyboard,
+  Platform,
+  Pressable,
+  SectionList,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native'
 import {
   isCustomRecentPickRow,
   type CaffeinePickerRow,
@@ -105,19 +113,23 @@ export const CaffeineSourceList = memo(function CaffeineSourceList({
     }: {
       section: CaffeinePickerSection & { title: string }
     }) => (
-      <View
-        style={[
+      <Pressable
+        onPress={() => Keyboard.dismiss()}
+        style={({ pressed }) => [
           styles.sectionHeader,
           {
             backgroundColor: palette.bg,
             borderBottomColor: palette.border,
+            opacity: pressed ? 0.85 : 1,
           },
         ]}
+        accessibilityRole="button"
+        accessibilityLabel={`${section.title}, dismiss keyboard`}
       >
         <Text style={[styles.sectionTitle, { color: palette.textStrong }]}>
           {section.title}
         </Text>
-      </View>
+      </Pressable>
     ),
     [palette]
   )
@@ -133,6 +145,10 @@ export const CaffeineSourceList = memo(function CaffeineSourceList({
       stickySectionHeadersEnabled
       ListHeaderComponent={listHeader ?? undefined}
       keyboardShouldPersistTaps="handled"
+      keyboardDismissMode={
+        Platform.OS === 'ios' ? 'interactive' : 'on-drag'
+      }
+      onScrollBeginDrag={() => Keyboard.dismiss()}
       style={styles.flex}
       contentContainerStyle={styles.listContent}
       initialNumToRender={14}
@@ -140,9 +156,11 @@ export const CaffeineSourceList = memo(function CaffeineSourceList({
       windowSize={10}
       removeClippedSubviews={false}
       ListEmptyComponent={
-        <Text style={[styles.empty, { color: palette.muted }]}>
-          {emptyHint}
-        </Text>
+        <Pressable onPress={() => Keyboard.dismiss()}>
+          <Text style={[styles.empty, { color: palette.muted }]}>
+            {emptyHint}
+          </Text>
+        </Pressable>
       }
     />
   )
