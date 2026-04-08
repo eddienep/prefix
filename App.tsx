@@ -54,7 +54,10 @@ import {
 } from './src/caffeineMath'
 import { CaffeineSourceList } from './src/CaffeineSourceList'
 import type { CaffeineSourceRow } from './src/caffeineDb'
-import { buildCaffeinePickerSections } from './src/caffeineDb'
+import {
+  buildCaffeinePickerSections,
+  recentProductNamesFromEntries,
+} from './src/caffeineDb'
 import { EntryThumbnail } from './src/EntryThumbnail'
 import { loadState, saveState, type ThemePreference } from './src/storage'
 import type { AppSettings, CaffeineEntry, WeightUnit } from './src/types'
@@ -387,10 +390,11 @@ function Screen() {
   const [formLabel, setFormLabel] = useState('')
   const [formThumbnailUrl, setFormThumbnailUrl] = useState('')
   const [sourceSearch, setSourceSearch] = useState('')
-  const [recentCaffeineSourceNames, setRecentCaffeineSourceNames] = useState<
-    string[]
-  >([])
   const [logModalVisible, setLogModalVisible] = useState(false)
+  /** Second-step sheet: amount, time, label, add (opened from list pick or “Custom”). */
+  const [logEntryDetailVisible, setLogEntryDetailVisible] = useState(false)
+  const [logEntrySourcePreview, setLogEntrySourcePreview] =
+    useState<CaffeineSourceRow | null>(null)
   const [showHomeScrollTopBtn, setShowHomeScrollTopBtn] = useState(false)
   const homeScrollRef = useRef<ComponentRef<typeof ScrollView> | null>(null)
   const homeScrollTopOpacity = useRef(new Animated.Value(0)).current
@@ -434,7 +438,6 @@ function Screen() {
       setEntries(s.entries)
       setSettings(s.settings)
       setThemePreference(s.themePreference)
-      setRecentCaffeineSourceNames(s.recentCaffeineSourceNames ?? [])
       setHydrated(true)
     })()
     return () => {
@@ -448,9 +451,8 @@ function Screen() {
       entries,
       settings,
       themePreference,
-      recentCaffeineSourceNames,
     })
-  }, [entries, settings, themePreference, recentCaffeineSourceNames, hydrated])
+  }, [entries, settings, themePreference, hydrated])
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 30_000)
@@ -795,7 +797,15 @@ function Screen() {
     updateChartViewDate(scrollXRef.current)
   }, [fullSeries, chartPointSpacing, updateChartViewDate, nowLineScreenXAnim])
 
+  const closeLogEntryDetail = useCallback(() => {
+    setLogEntryDetailVisible(false)
+    setLogEntrySourcePreview(null)
+    setShowPicker(false)
+  }, [])
+
   const closeLogModal = useCallback(() => {
+    setLogEntryDetailVisible(false)
+    setLogEntrySourcePreview(null)
     setLogModalVisible(false)
     setShowPicker(false)
     setSourceSearch('')
@@ -804,11 +814,20 @@ function Screen() {
   useEffect(() => {
     if (!logModalVisible) return
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (logEntryDetailVisible) {
+        closeLogEntryDetail()
+        return true
+      }
       closeLogModal()
       return true
     })
     return () => sub.remove()
-  }, [logModalVisible, closeLogModal])
+  }, [
+    logModalVisible,
+    logEntryDetailVisible,
+    closeLogModal,
+    closeLogEntryDetail,
+  ])
 
   const homeScrollTopBtnShown =
     route === 'home' && showHomeScrollTopBtn && !logModalVisible
@@ -842,18 +861,31 @@ function Screen() {
     const mg = Number(formMg)
     if (!Number.isFinite(mg) || mg <= 0) return
     const thumb = formThumbnailUrl.trim()
+    const productNameForRecent = logEntrySourcePreview?.name
     const entry: CaffeineEntry = {
       id: newId(),
       timestamp: consumptionAt.toISOString(),
       caffeine_mg: mg,
       label: formLabel.trim() || 'Caffeine',
       ...(thumb ? { thumbnailUrl: thumb } : {}),
+      ...(productNameForRecent
+        ? { sourceProductName: productNameForRecent }
+        : {}),
     }
     setEntries((prev) => [...prev, entry])
     setFormLabel('')
     setFormThumbnailUrl('')
+    setLogEntryDetailVisible(false)
+    setLogEntrySourcePreview(null)
     closeLogModal()
-  }, [formMg, consumptionAt, formLabel, formThumbnailUrl, closeLogModal])
+  }, [
+    formMg,
+    consumptionAt,
+    formLabel,
+    formThumbnailUrl,
+    logEntrySourcePreview,
+    closeLogModal,
+  ])
 
   const removeEntry = useCallback((id: string) => {
     setEntries((prev) => prev.filter((e) => e.id !== id))
@@ -863,15 +895,29 @@ function Screen() {
     setFormMg(String(row.mg))
     setFormLabel(row.name)
     setFormThumbnailUrl(row.image_url?.trim() ? row.image_url : '')
-    setRecentCaffeineSourceNames((prev) => {
-      const next = [row.name, ...prev.filter((n) => n !== row.name)]
-      return next.slice(0, 30)
-    })
+    setConsumptionAt(new Date())
+    setShowPicker(false)
+    setLogEntrySourcePreview(row)
+    setLogEntryDetailVisible(true)
+  }, [])
+
+  const openCustomLogEntry = useCallback(() => {
+    setFormMg('95')
+    setFormLabel('')
+    setFormThumbnailUrl('')
+    setConsumptionAt(new Date())
+    setShowPicker(false)
+    setLogEntrySourcePreview(null)
+    setLogEntryDetailVisible(true)
   }, [])
 
   const caffeinePickerSections = useMemo(
-    () => buildCaffeinePickerSections(sourceSearch, recentCaffeineSourceNames),
-    [sourceSearch, recentCaffeineSourceNames]
+    () =>
+      buildCaffeinePickerSections(
+        sourceSearch,
+        recentProductNamesFromEntries(entries)
+      ),
+    [sourceSearch, entries]
   )
 
   const caffeinePickerPalette = useMemo(
@@ -1486,93 +1532,25 @@ function Screen() {
               <Ionicons name="close" size={26} color={c.muted} />
             </Pressable>
           </View>
+          <View
+            style={[
+              styles.logModalCustomRow,
+              { borderBottomColor: c.border },
+            ]}
+          >
+            <Pressable
+              onPress={openCustomLogEntry}
+              style={({ pressed }) => [{ opacity: pressed ? 0.75 : 1 }]}
+              accessibilityLabel="Log a custom amount without picking from the list"
+              accessibilityRole="button"
+            >
+              <Text style={[styles.logModalCustomLink, { color: c.accent }]}>
+                Custom amount…
+              </Text>
+            </Pressable>
+          </View>
           <LogModalBodyHost>
             <View style={styles.logModalBodyColumn}>
-              <RNScrollView
-                style={styles.logModalFormScroll}
-                keyboardShouldPersistTaps="handled"
-                showsVerticalScrollIndicator={false}
-                automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
-                keyboardDismissMode={
-                  Platform.OS === 'ios' ? 'interactive' : 'on-drag'
-                }
-                bounces={Platform.OS !== 'ios'}
-                nestedScrollEnabled
-                contentContainerStyle={styles.logModalFormScrollContent}
-              >
-                <Text style={styles.label}>Amount (mg)</Text>
-                <TextInput
-                  style={styles.input}
-                  keyboardType="number-pad"
-                  value={formMg}
-                  onChangeText={setFormMg}
-                />
-                <Text style={[styles.label, { marginTop: 12 }]}>Time</Text>
-                <Pressable
-                  onPress={() => setShowPicker(true)}
-                  style={styles.dateBtn}
-                >
-                  <Text style={styles.dateBtnText}>
-                    {dayjs(consumptionAt).format('lll')}
-                  </Text>
-                </Pressable>
-                {showPicker && (
-                  <DateTimePicker
-                    value={consumptionAt}
-                    mode="datetime"
-                    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                    onChange={(_, date) => {
-                      if (Platform.OS === 'android') setShowPicker(false)
-                      if (date) setConsumptionAt(date)
-                    }}
-                  />
-                )}
-                {Platform.OS === 'ios' && showPicker && (
-                  <Pressable
-                    style={styles.donePicker}
-                    onPress={() => setShowPicker(false)}
-                  >
-                    <Text style={styles.donePickerText}>Done</Text>
-                  </Pressable>
-                )}
-                <Text style={[styles.label, { marginTop: 12 }]}>
-                  Label (optional)
-                </Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="e.g. coffee"
-                  placeholderTextColor={c.muted}
-                  value={formLabel}
-                  onChangeText={setFormLabel}
-                />
-                <Text style={[styles.label, { marginTop: 12 }]}>
-                  Thumbnail URL (optional)
-                </Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="https://…"
-                  placeholderTextColor={c.muted}
-                  value={formThumbnailUrl}
-                  onChangeText={setFormThumbnailUrl}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  keyboardType="url"
-                />
-                <Pressable style={styles.primaryBtn} onPress={addEntry}>
-                  <Text style={styles.primaryBtnText}>Add entry</Text>
-                </Pressable>
-                <View style={styles.presetRow}>
-                  {PRESETS.map((p) => (
-                    <Pressable
-                      key={p.label}
-                      onPress={() => setFormMg(String(p.mg))}
-                      style={styles.presetChip}
-                    >
-                      <Text style={styles.presetChipText}>{p.label}</Text>
-                    </Pressable>
-                  ))}
-                </View>
-              </RNScrollView>
               <View
                 style={[
                   styles.logModalSearchBlock,
@@ -1599,6 +1577,180 @@ function Screen() {
               />
             </View>
           </LogModalBodyHost>
+          {logEntryDetailVisible ? (
+            <>
+              <Pressable
+                style={styles.logEntryDetailBackdrop}
+                onPress={closeLogEntryDetail}
+                accessibilityLabel="Dismiss"
+                accessibilityRole="button"
+              />
+              <KeyboardAvoidingView
+                style={styles.logEntryDetailOuter}
+                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                pointerEvents="box-none"
+              >
+                <View
+                  style={styles.logEntryDetailCenter}
+                  pointerEvents="box-none"
+                >
+                  <View
+                    style={[
+                      styles.logEntryDetailCard,
+                      {
+                        borderColor: c.border,
+                        backgroundColor: c.surface,
+                      },
+                    ]}
+                  >
+                    <View style={styles.logEntryDetailHeader}>
+                      <Pressable
+                        onPress={closeLogEntryDetail}
+                        hitSlop={12}
+                        style={styles.logEntryDetailBackBtn}
+                        accessibilityLabel="Back"
+                        accessibilityRole="button"
+                      >
+                        <Ionicons
+                          name="chevron-back"
+                          size={26}
+                          color={c.accent}
+                        />
+                      </Pressable>
+                      <Text
+                        style={[
+                          styles.logEntryDetailTitle,
+                          { color: c.textStrong },
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {logEntrySourcePreview
+                          ? 'Confirm entry'
+                          : 'Custom entry'}
+                      </Text>
+                    </View>
+                    {logEntrySourcePreview ? (
+                      <View
+                        style={[
+                          styles.logEntryDetailPreview,
+                          { borderBottomColor: c.border },
+                        ]}
+                      >
+                        <EntryThumbnail
+                          thumbnailUrl={logEntrySourcePreview.image_url}
+                          surfaceColor={c.surface}
+                          borderColor={c.border}
+                        />
+                        <Text
+                          style={[
+                            styles.logEntryDetailPreviewName,
+                            { color: c.textStrong },
+                          ]}
+                          numberOfLines={3}
+                        >
+                          {logEntrySourcePreview.name}
+                        </Text>
+                      </View>
+                    ) : null}
+                    <RNScrollView
+                      keyboardShouldPersistTaps="handled"
+                      showsVerticalScrollIndicator={false}
+                      automaticallyAdjustKeyboardInsets={
+                        Platform.OS === 'ios'
+                      }
+                      keyboardDismissMode={
+                        Platform.OS === 'ios' ? 'interactive' : 'on-drag'
+                      }
+                      bounces={Platform.OS !== 'ios'}
+                      contentContainerStyle={
+                        styles.logEntryDetailScrollContent
+                      }
+                    >
+                      <Text style={styles.label}>Amount (mg)</Text>
+                      <TextInput
+                        style={styles.input}
+                        keyboardType="number-pad"
+                        value={formMg}
+                        onChangeText={setFormMg}
+                      />
+                      <Text style={[styles.label, { marginTop: 12 }]}>
+                        Time
+                      </Text>
+                      <Pressable
+                        onPress={() => setShowPicker(true)}
+                        style={styles.dateBtn}
+                      >
+                        <Text style={styles.dateBtnText}>
+                          {dayjs(consumptionAt).format('lll')}
+                        </Text>
+                      </Pressable>
+                      {showPicker && (
+                        <DateTimePicker
+                          value={consumptionAt}
+                          mode="datetime"
+                          display={
+                            Platform.OS === 'ios' ? 'spinner' : 'default'
+                          }
+                          onChange={(_, date) => {
+                            if (Platform.OS === 'android')
+                              setShowPicker(false)
+                            if (date) setConsumptionAt(date)
+                          }}
+                        />
+                      )}
+                      {Platform.OS === 'ios' && showPicker && (
+                        <Pressable
+                          style={styles.donePicker}
+                          onPress={() => setShowPicker(false)}
+                        >
+                          <Text style={styles.donePickerText}>Done</Text>
+                        </Pressable>
+                      )}
+                      <Text style={[styles.label, { marginTop: 12 }]}>
+                        Label (optional)
+                      </Text>
+                      <TextInput
+                        style={styles.input}
+                        placeholder="e.g. coffee"
+                        placeholderTextColor={c.muted}
+                        value={formLabel}
+                        onChangeText={setFormLabel}
+                      />
+                      <Text style={[styles.label, { marginTop: 12 }]}>
+                        Thumbnail URL (optional)
+                      </Text>
+                      <TextInput
+                        style={styles.input}
+                        placeholder="https://…"
+                        placeholderTextColor={c.muted}
+                        value={formThumbnailUrl}
+                        onChangeText={setFormThumbnailUrl}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        keyboardType="url"
+                      />
+                      <Pressable style={styles.primaryBtn} onPress={addEntry}>
+                        <Text style={styles.primaryBtnText}>Add entry</Text>
+                      </Pressable>
+                      <View style={styles.presetRow}>
+                        {PRESETS.map((p) => (
+                          <Pressable
+                            key={p.label}
+                            onPress={() => setFormMg(String(p.mg))}
+                            style={styles.presetChip}
+                          >
+                            <Text style={styles.presetChipText}>
+                              {p.label}
+                            </Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                    </RNScrollView>
+                  </View>
+                </View>
+              </KeyboardAvoidingView>
+            </>
+          ) : null}
           </View>
         </>
       ) : null}
@@ -1683,21 +1835,76 @@ function makeStyles(c: ThemeColors) {
       flex: 1,
       minHeight: 0,
     },
-    logModalFormScroll: {
-      flexGrow: 0,
-      maxHeight: 360,
-      minHeight: 0,
-    },
-    logModalFormScrollContent: {
+    logModalCustomRow: {
+      paddingVertical: 10,
       paddingHorizontal: 16,
-      paddingTop: 16,
-      paddingBottom: 12,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+    },
+    logModalCustomLink: {
+      fontSize: 15,
+      fontWeight: '600',
     },
     logModalSearchBlock: {
       paddingHorizontal: 16,
       paddingTop: 8,
       paddingBottom: 10,
       borderBottomWidth: StyleSheet.hairlineWidth,
+    },
+    logEntryDetailBackdrop: {
+      ...StyleSheet.absoluteFillObject,
+      zIndex: 210,
+      elevation: 210,
+      backgroundColor: 'rgba(0,0,0,0.45)',
+    },
+    logEntryDetailOuter: {
+      ...StyleSheet.absoluteFillObject,
+      zIndex: 211,
+      elevation: 211,
+      justifyContent: 'center',
+    },
+    logEntryDetailCenter: {
+      flex: 1,
+      justifyContent: 'center',
+      paddingHorizontal: 20,
+      minHeight: 0,
+    },
+    logEntryDetailCard: {
+      borderRadius: 16,
+      borderWidth: 1,
+      maxHeight: '88%',
+      overflow: 'hidden',
+    },
+    logEntryDetailHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 8,
+      paddingVertical: 8,
+      gap: 4,
+    },
+    logEntryDetailBackBtn: {
+      padding: 4,
+    },
+    logEntryDetailTitle: {
+      flex: 1,
+      fontSize: 17,
+      fontWeight: '700',
+    },
+    logEntryDetailPreview: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 16,
+      paddingBottom: 12,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+    },
+    logEntryDetailPreviewName: {
+      flex: 1,
+      fontSize: 15,
+      fontWeight: '600',
+    },
+    logEntryDetailScrollContent: {
+      paddingHorizontal: 16,
+      paddingTop: 16,
+      paddingBottom: 28,
     },
     logModalHeaderBar: {
       flexDirection: 'row',

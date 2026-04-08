@@ -7,6 +7,11 @@ export interface CaffeineEntry {
   label: string
   /** Optional image URL shown in the consumption list; falls back to ☕ when missing or invalid. */
   thumbnailUrl?: string
+  /**
+   * When logged from the product database, the canonical catalog name (for picker “Recent”).
+   * Omitted for custom logs; label may differ from this after editing.
+   */
+  sourceProductName?: string
 }
 
 export interface AppSettings {

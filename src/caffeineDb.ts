@@ -23,6 +23,46 @@ export const CAFFEINE_SOURCE_ITEMS: CaffeineSourceRow[] = loaded
 export const CAFFEINE_ITEMS_WITH_CAFFEINE: CaffeineSourceRow[] =
   CAFFEINE_SOURCE_ITEMS.filter((r) => r.mg > 0)
 
+const DB_NAMES_WITH_CAFFEINE = new Set(
+  CAFFEINE_ITEMS_WITH_CAFFEINE.map((r) => r.name)
+)
+
+export type EntryForRecentPick = {
+  timestamp: string
+  label: string
+  sourceProductName?: string
+}
+
+/**
+ * Catalog product names for the picker “Recent” section, from **saved** consumption
+ * only (newest first, deduped). Uses `sourceProductName` when set; otherwise falls
+ * back to `label` only if it exactly matches a database product name.
+ */
+export function recentProductNamesFromEntries(
+  entries: readonly EntryForRecentPick[],
+  dbNames: ReadonlySet<string> = DB_NAMES_WITH_CAFFEINE
+): string[] {
+  const sorted = [...entries].sort(
+    (a, b) =>
+      new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+  )
+  const ordered: string[] = []
+  const seen = new Set<string>()
+  for (const e of sorted) {
+    const explicit = e.sourceProductName?.trim()
+    const fromExplicit =
+      explicit && dbNames.has(explicit) ? explicit : null
+    const labelTrim = e.label.trim()
+    const fromLabel = !fromExplicit && dbNames.has(labelTrim) ? labelTrim : null
+    const key = fromExplicit ?? fromLabel
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    ordered.push(key)
+    if (ordered.length >= 30) break
+  }
+  return ordered
+}
+
 /**
  * Build SectionList sections: while searching, a single "Results" section;
  * otherwise "Recent" (if any) plus one section per category (A–Z), excluding
