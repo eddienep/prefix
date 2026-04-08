@@ -1534,35 +1534,25 @@ function Screen() {
               },
             ]}
           >
-            <Text style={[styles.logModalTitle, { color: c.textStrong }]}>
-              Log Caffeine
-            </Text>
             <Pressable
               onPress={closeLogModal}
-              hitSlop={16}
-              style={styles.logModalCloseBtn}
-              accessibilityLabel="Close"
+              style={({ pressed }) => [
+                styles.backBtn,
+                { alignSelf: 'center', opacity: pressed ? 0.7 : 1 },
+              ]}
+              hitSlop={12}
+              accessibilityLabel="Back"
               accessibilityRole="button"
             >
-              <Ionicons name="close" size={26} color={c.muted} />
+              <Ionicons name="chevron-back" size={26} color={c.accent} />
+              <Text style={styles.backBtnText}>Back</Text>
             </Pressable>
-          </View>
-          <View
-            style={[
-              styles.logModalCustomRow,
-              { borderBottomColor: c.border },
-            ]}
-          >
-            <Pressable
-              onPress={openCustomLogEntry}
-              style={({ pressed }) => [{ opacity: pressed ? 0.75 : 1 }]}
-              accessibilityLabel="Log a custom amount without picking from the list"
-              accessibilityRole="button"
+            <Text
+              style={[styles.logModalTitle, { color: c.textStrong }]}
+              numberOfLines={1}
             >
-              <Text style={[styles.logModalCustomLink, { color: c.accent }]}>
-                Custom amount…
-              </Text>
-            </Pressable>
+              Log Caffeine
+            </Text>
           </View>
           <LogModalBodyHost>
             <View style={styles.logModalBodyColumn}>
@@ -1572,17 +1562,68 @@ function Screen() {
                   { borderBottomColor: c.border },
                 ]}
               >
-                <Text style={styles.label}>Search database</Text>
-                <TextInput
-                  style={[styles.input, { marginTop: 6 }]}
-                  placeholder="Filter by name or category (Coffee, Tea, …)"
-                  placeholderTextColor={c.muted}
-                  value={sourceSearch}
-                  onChangeText={setSourceSearch}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  returnKeyType="search"
-                />
+                <View style={styles.logModalSearchRow}>
+                  <View style={styles.logModalSearchInputWrap}>
+                    <TextInput
+                      style={[
+                        styles.input,
+                        styles.logModalSearchTextInput,
+                        {
+                          paddingRight: sourceSearch.length > 0 ? 36 : 12,
+                        },
+                      ]}
+                      placeholder="Search for items"
+                      placeholderTextColor={c.muted}
+                      value={sourceSearch}
+                      onChangeText={setSourceSearch}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      returnKeyType="search"
+                    />
+                    {sourceSearch.length > 0 ? (
+                      <Pressable
+                        onPress={() => setSourceSearch('')}
+                        style={styles.logModalSearchClearBtn}
+                        hitSlop={8}
+                        accessibilityLabel="Clear search"
+                        accessibilityRole="button"
+                      >
+                        <Ionicons
+                          name="close-circle"
+                          size={22}
+                          color={c.muted}
+                        />
+                      </Pressable>
+                    ) : null}
+                  </View>
+                  <Pressable
+                    onPress={openCustomLogEntry}
+                    style={({ pressed }) => [
+                      styles.logModalCustomBtn,
+                      {
+                        borderWidth: 0,
+                        backgroundColor: c.inputBg,
+                        opacity: pressed ? 0.85 : 1,
+                      },
+                    ]}
+                    accessibilityLabel="Log a custom amount without picking from the list"
+                    accessibilityRole="button"
+                  >
+                    <Ionicons
+                      name="add-circle-outline"
+                      size={28}
+                      color={c.accent}
+                    />
+                    <Text
+                      style={[
+                        styles.logModalCustomBtnCaption,
+                        { color: c.muted },
+                      ]}
+                    >
+                      custom
+                    </Text>
+                  </Pressable>
+                </View>
               </View>
               <CaffeineSourceList
                 palette={caffeinePickerPalette}
@@ -1874,20 +1915,49 @@ function makeStyles(c: ThemeColors) {
       flex: 1,
       minHeight: 0,
     },
-    logModalCustomRow: {
-      paddingVertical: 10,
-      paddingHorizontal: 16,
-      borderBottomWidth: StyleSheet.hairlineWidth,
-    },
-    logModalCustomLink: {
-      fontSize: 15,
-      fontWeight: '600',
-    },
     logModalSearchBlock: {
       paddingHorizontal: 16,
-      paddingTop: 8,
-      paddingBottom: 10,
+      paddingVertical: 10,
       borderBottomWidth: StyleSheet.hairlineWidth,
+    },
+    logModalSearchRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+    },
+    logModalSearchInputWrap: {
+      flex: 1,
+      minWidth: 0,
+      justifyContent: 'center',
+    },
+    logModalSearchTextInput: {
+      width: '100%',
+    },
+    logModalSearchClearBtn: {
+      position: 'absolute',
+      right: 10,
+      top: 0,
+      bottom: 0,
+      justifyContent: 'center',
+      alignItems: 'center',
+      width: 32,
+    },
+    logModalCustomBtn: {
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 2,
+      paddingVertical: 6,
+      paddingHorizontal: 10,
+      minWidth: 56,
+      borderRadius: 10,
+      borderWidth: 1,
+    },
+    logModalCustomBtnCaption: {
+      fontSize: 11,
+      fontWeight: '600',
+      textTransform: 'lowercase',
+      letterSpacing: 0.2,
     },
     logEntryDetailBackdrop: {
       ...StyleSheet.absoluteFillObject,
@@ -1948,18 +2018,16 @@ function makeStyles(c: ThemeColors) {
     logModalHeaderBar: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'space-between',
+      gap: 4,
       borderBottomWidth: StyleSheet.hairlineWidth,
       zIndex: 2,
       elevation: 4,
     },
-    logModalCloseBtn: {
-      padding: 8,
-      marginRight: -4,
-    },
     logModalTitle: {
+      flex: 1,
       fontSize: 18,
       fontWeight: '700',
+      minWidth: 0,
     },
     scrollContent: { paddingHorizontal: 16, paddingTop: 8 },
     /** Same horizontal inset as section titles (`cardTitle`); header sits outside ScrollView here. */
