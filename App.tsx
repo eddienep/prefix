@@ -79,8 +79,13 @@ const CHART_HEIGHT = 240
  * `floatingYAxisLabels` + `yAxisLabelContainerStyle.width`.
  */
 const CHART_FLOATING_Y_LABEL_W = 56
-/** Nudge floating Y labels down so they sit just under the horizontal grid lines. */
-const CHART_FLOATING_Y_LABEL_NUDGE_Y = 8
+/**
+ * Nudge floating Y labels down so they sit just under the horizontal grid lines.
+ * Use layout (`paddingTop` on `yAxisLabelContainerStyle`), not `translateY` on the Text:
+ * RN often applies Text `transform` only after a second layout pass, so cold start ignores
+ * the nudge until something remounts (e.g. Fast Refresh).
+ */
+const CHART_FLOATING_Y_LABEL_NUDGE_Y = 10
 /** Must match `xAxisThickness` on `LineChart`. */
 const CHART_X_AXIS_THICKNESS = 1
 /**
@@ -219,12 +224,52 @@ function pointsPerDayFromStep(stepMin: number): number {
   return Math.max(1, Math.round(1440 / stepMin))
 }
 
-function buildScrollableLineData(
+/**
+ * Horizontal position of “now” in gifted-charts ScrollView **content** coordinates.
+ * BarAndLineChartsWrapper uses `paddingLeft: initialSpacing` and SVG x from `getX`, where
+ * `getX(i) = initialSpacing + i * spacing` (uniform spacing). A data point’s content-x is
+ * therefore `initialSpacing + getX(i) = 2 * initialSpacing + i * spacing`.
+ *
+ * Interpolates between samples by wall time; extrapolates at most one segment past the last
+ * point when `now` is slightly past the final sample (avoids snapping a full hour left).
+ */
+function nowLineXInScrollContentCoords(
   series: ChartPoint[],
   nowMs: number,
-  accent: string,
-  muted: string
-) {
+  initialSpacing: number,
+  pointSpacing: number
+): number {
+  const x0 = 2 * initialSpacing
+  if (series.length < 2) return x0
+
+  const tFirst = series[0].t
+  const tLast = series[series.length - 1].t
+
+  if (nowMs <= tFirst) return x0
+
+  if (nowMs >= tLast) {
+    const base = x0 + (series.length - 1) * pointSpacing
+    const tPrev = series[series.length - 2].t
+    const span = tLast - tPrev
+    if (span <= 0) return base
+    const extraFrac = (nowMs - tLast) / span
+    return base + Math.max(0, Math.min(1, extraFrac)) * pointSpacing
+  }
+
+  for (let i = 0; i < series.length - 1; i++) {
+    const t0 = series[i].t
+    const t1 = series[i + 1].t
+    if (nowMs >= t0 && nowMs <= t1) {
+      const span = t1 - t0
+      const frac = span > 0 ? (nowMs - t0) / span : 0
+      return x0 + (i + frac) * pointSpacing
+    }
+  }
+
+  return x0
+}
+
+function buildScrollableLineData(series: ChartPoint[], muted: string) {
   if (series.length === 0) {
     return {
       lineData: [
@@ -239,35 +284,34 @@ function buildScrollableLineData(
           labelTextStyle: { fontSize: 9, color: muted },
         },
       ],
-      nowIndex: 0,
     }
   }
 
-  let nearestNow = 0
-  let best = Infinity
-  series.forEach((p, i) => {
-    const d = Math.abs(p.t - nowMs)
-    if (d < best) {
-      best = d
-      nearestNow = i
-    }
-  })
-
+  /**
+   * Always pass real time text for every point (hourly samples). Gifted-charts lays out each
+   * x-axis cell; alternating `' '` vs `'3 PM'` caused remeasure/jank every 3 h along the axis
+   * when scrolling or when the now-line moved. Hidden slots use opacity 0 but identical string.
+   */
   const lineData = series.map((p, i) => {
     const d = dayjs(p.t)
     const onClockGrid =
       d.minute() === 0 && d.hour() % X_LABEL_EVERY_H === 0
     const showTimeLabel = onClockGrid || i === series.length - 1
-    const label = showTimeLabel ? d.format('h A') : ' '
+    const label = d.format('h A')
 
     return {
       value: Math.round(p.caffeine_mg * 10) / 10,
       label,
-      labelTextStyle: { fontSize: 10, color: muted, textAlign: 'center' as const },
+      labelTextStyle: {
+        fontSize: 10,
+        color: muted,
+        textAlign: 'center' as const,
+        opacity: showTimeLabel ? 1 : 0,
+      },
     }
   })
 
-  return { lineData, nowIndex: nearestNow }
+  return { lineData }
 }
 
 function Screen() {
@@ -336,22 +380,12 @@ function Screen() {
     return () => clearInterval(id)
   }, [])
 
-  /** Wall-clock minute bucket; chart “now” stamp only updates when this changes. */
-  const [minuteEpoch, setMinuteEpoch] = useState(() =>
-    Math.floor(Date.now() / 60_000)
-  )
-
+  /** Re-render ~1 Hz for the floating time label (`h:mm A`); line X is driven by rAF separately. */
+  const [clockLabelTick, setClockLabelTick] = useState(0)
   useEffect(() => {
-    const id = setInterval(() => {
-      const m = Math.floor(Date.now() / 60_000)
-      setMinuteEpoch((prev) => (prev !== m ? m : prev))
-    }, 1000)
+    const id = setInterval(() => setClockLabelTick((n) => n + 1), 1000)
     return () => clearInterval(id)
   }, [])
-
-  useEffect(() => {
-    setMinuteEpoch(Math.floor(now.getTime() / 60_000))
-  }, [now])
 
   const scheme = effectiveScheme(
     route === 'settings' ? draftTheme : themePreference,
@@ -390,8 +424,13 @@ function Screen() {
   const scrollXRef = useRef(0)
   /** Visible-day banner: skip setState when center index unchanged during scroll. */
   const chartBannerIdxRef = useRef(-1)
-  const chartScrollXAnim = useRef(new Animated.Value(0)).current
-  const nowLineBaseXAnim = useRef(new Animated.Value(0)).current
+  /**
+   * Viewport X of the “now” line: `nowLineScrollX - scrollX`. A single `Animated.Value`
+   * updated from scroll events + when the content-x changes — `Animated.subtract` against
+   * scroll was not staying in sync on device (line stuck; label still ticked).
+   */
+  const nowLineScreenXAnim = useRef(new Animated.Value(0)).current
+  const nowLineScrollXRef = useRef(0)
   const scrollPastAdjustRef = useRef(0)
   const didInitialChartScrollRef = useRef(false)
   const pendingTodayScrollRef = useRef(false)
@@ -416,6 +455,11 @@ function Screen() {
       ),
     [chartViewportW]
   )
+
+  const fullSeriesRef = useRef(fullSeries)
+  const chartPointSpacingRef = useRef(chartPointSpacing)
+  fullSeriesRef.current = fullSeries
+  chartPointSpacingRef.current = chartPointSpacing
 
   const chartLabelsExtraHeight = useMemo(
     () =>
@@ -452,38 +496,57 @@ function Screen() {
     )
   }, [chartBlockHeight, chartNowLineBottomReserve])
 
-  const chartLayout = useMemo(() => {
-    return buildScrollableLineData(
-      fullSeries,
-      now.getTime(),
-      c.accent,
-      c.muted
-    )
-  }, [fullSeries, now, c.accent, c.muted])
-
-  const { lineData, nowIndex } = chartLayout
-
-  const nowLineTranslateX = useMemo(
-    () => Animated.subtract(nowLineBaseXAnim, chartScrollXAnim),
-    [nowLineBaseXAnim, chartScrollXAnim]
+  const chartLayout = useMemo(
+    () => buildScrollableLineData(fullSeries, c.muted),
+    [fullSeries, c.muted]
   )
 
-  useLayoutEffect(() => {
-    nowLineBaseXAnim.setValue(
-      CHART_INITIAL_SPACING + nowIndex * chartPointSpacing
-    )
-  }, [nowIndex, chartPointSpacing, nowLineBaseXAnim])
+  const { lineData } = chartLayout
 
+  /**
+   * Drive the “now” line at display refresh rate so it drifts smoothly within each hour.
+   * (1 Hz React updates were visibly stepping the line.) Only runs on the home chart.
+   */
+  useEffect(() => {
+    if (!hydrated || route !== 'home') return undefined
+    let rafId = 0
+    let active = true
+    const tick = () => {
+      if (!active) return
+      const series = fullSeriesRef.current
+      if (series.length >= 2) {
+        const nx = nowLineXInScrollContentCoords(
+          series,
+          Date.now(),
+          CHART_INITIAL_SPACING,
+          chartPointSpacingRef.current
+        )
+        nowLineScrollXRef.current = nx
+        nowLineScreenXAnim.setValue(nx - scrollXRef.current)
+      }
+      rafId = requestAnimationFrame(tick)
+    }
+    rafId = requestAnimationFrame(tick)
+    return () => {
+      active = false
+      cancelAnimationFrame(rafId)
+    }
+  }, [hydrated, route, nowLineScreenXAnim])
+
+  /** Wall time for the pill; line position uses `Date.now()` every frame via rAF. */
   const nowTimeLabel = useMemo(
-    () => dayjs(minuteEpoch * 60_000).format('h:mm A'),
-    [minuteEpoch]
+    () => dayjs(Date.now()).format('h:mm A'),
+    [clockLabelTick]
   )
 
-  /** Total horizontal extent of the series (for scroll math / layout). Do not pass as LineChart `width` (that prop is viewport width in gifted-charts). */
+  /**
+   * Match gifted-charts `totalWidth`: `initialSpacing + sum(per-point spacing) + endSpacing`
+   * (each data point contributes one `spacing` in their cumulative sum).
+   */
   const chartTotalWidth =
     CHART_INITIAL_SPACING +
-    CHART_END_SPACING +
-    Math.max(0, fullSeries.length - 1) * chartPointSpacing
+    Math.max(0, fullSeries.length) * chartPointSpacing +
+    CHART_END_SPACING
 
   /** Nearest series index to local midnight of the calendar day containing `now` (for default scroll). */
   const midnightTodayIndex = useMemo(() => {
@@ -517,8 +580,11 @@ function Screen() {
   const updateChartViewDate = useCallback(
     (scrollX: number) => {
       if (fullSeries.length === 0) return
-      const contentX = scrollX + chartViewportW / 2 - CHART_INITIAL_SPACING
-      const idx = Math.round(Math.max(0, contentX / chartPointSpacing))
+      const contentX = scrollX + chartViewportW / 2
+      const x0 = 2 * CHART_INITIAL_SPACING
+      const idx = Math.round(
+        Math.max(0, (contentX - x0) / chartPointSpacing)
+      )
       const clamped = Math.min(idx, fullSeries.length - 1)
       if (clamped === chartBannerIdxRef.current) return
       chartBannerIdxRef.current = clamped
@@ -529,20 +595,14 @@ function Screen() {
     [fullSeries, chartViewportW, chartPointSpacing]
   )
 
-  const onChartScroll = useMemo(
-    () =>
-      Animated.event(
-        [{ nativeEvent: { contentOffset: { x: chartScrollXAnim } } }],
-        {
-          useNativeDriver: false,
-          listener: (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-            const x = e.nativeEvent.contentOffset.x
-            scrollXRef.current = x
-            updateChartViewDate(x)
-          },
-        }
-      ),
-    [chartScrollXAnim, updateChartViewDate]
+  const onChartScroll = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const x = e.nativeEvent.contentOffset.x
+      scrollXRef.current = x
+      nowLineScreenXAnim.setValue(nowLineScrollXRef.current - x)
+      updateChartViewDate(x)
+    },
+    [nowLineScreenXAnim, updateChartViewDate]
   )
 
   const jumpToToday = useCallback(() => {
@@ -574,10 +634,10 @@ function Screen() {
     const x = Math.max(0, target)
     chartScrollRef.current?.scrollTo({ x, animated: false })
     scrollXRef.current = x
-    chartScrollXAnim.setValue(x)
+    nowLineScreenXAnim.setValue(nowLineScrollXRef.current - x)
     chartBannerIdxRef.current = -1
     updateChartViewDate(x)
-  }, [pastDays, updateChartViewDate, chartScrollXAnim])
+  }, [pastDays, updateChartViewDate, nowLineScreenXAnim])
 
   useLayoutEffect(() => {
     if (!pendingTodayScrollRef.current || fullSeries.length < 2) return
@@ -594,11 +654,13 @@ function Screen() {
     })
     const x = Math.max(
       0,
-      CHART_INITIAL_SPACING + idx * chartPointSpacing - chartViewportW / 2
+      2 * CHART_INITIAL_SPACING +
+        idx * chartPointSpacing -
+        chartViewportW / 2
     )
     chartScrollRef.current?.scrollTo({ x, animated: true })
     scrollXRef.current = x
-    chartScrollXAnim.setValue(x)
+    nowLineScreenXAnim.setValue(nowLineScrollXRef.current - x)
     chartBannerIdxRef.current = -1
     updateChartViewDate(x)
     didInitialChartScrollRef.current = true
@@ -607,7 +669,7 @@ function Screen() {
     chartViewportW,
     chartPointSpacing,
     updateChartViewDate,
-    chartScrollXAnim,
+    nowLineScreenXAnim,
   ])
 
   useEffect(() => {
@@ -615,7 +677,7 @@ function Screen() {
       return
     }
     const rawLeft =
-      CHART_INITIAL_SPACING + midnightTodayIndex * chartPointSpacing
+      2 * CHART_INITIAL_SPACING + midnightTodayIndex * chartPointSpacing
     const maxScrollX = Math.max(0, chartTotalWidth - chartViewportW)
     const x = Math.max(0, Math.min(rawLeft, maxScrollX))
     const timer = setTimeout(() => {
@@ -624,7 +686,7 @@ function Screen() {
       didInitialChartScrollRef.current = true
       chartScrollRef.current.scrollTo({ x, animated: false })
       scrollXRef.current = x
-      chartScrollXAnim.setValue(x)
+      nowLineScreenXAnim.setValue(nowLineScrollXRef.current - x)
       chartBannerIdxRef.current = -1
       updateChartViewDate(x)
     }, 200)
@@ -637,15 +699,22 @@ function Screen() {
     chartViewportW,
     chartPointSpacing,
     updateChartViewDate,
-    chartScrollXAnim,
+    nowLineScreenXAnim,
   ])
 
   useEffect(() => {
     if (!didInitialChartScrollRef.current || fullSeries.length === 0) return
     chartBannerIdxRef.current = -1
-    chartScrollXAnim.setValue(scrollXRef.current)
+    const nx = nowLineXInScrollContentCoords(
+      fullSeries,
+      Date.now(),
+      CHART_INITIAL_SPACING,
+      chartPointSpacing
+    )
+    nowLineScrollXRef.current = nx
+    nowLineScreenXAnim.setValue(nx - scrollXRef.current)
     updateChartViewDate(scrollXRef.current)
-  }, [fullSeries, updateChartViewDate, chartScrollXAnim])
+  }, [fullSeries, chartPointSpacing, updateChartViewDate, nowLineScreenXAnim])
 
   const addEntry = useCallback(() => {
     const mg = Number(formMg)
@@ -971,13 +1040,11 @@ function Screen() {
                     yAxisTextStyle={{
                       color: c.muted,
                       fontSize: 10,
-                      transform: [
-                        { translateY: CHART_FLOATING_Y_LABEL_NUDGE_Y },
-                      ],
                     }}
                     yAxisLabelContainerStyle={{
                       width: CHART_FLOATING_Y_LABEL_W,
                       paddingLeft: 6,
+                      paddingTop: CHART_FLOATING_Y_LABEL_NUDGE_Y,
                     }}
                     xAxisLabelTextStyle={{
                       color: c.muted,
@@ -1026,7 +1093,7 @@ function Screen() {
                       top: 0,
                       width: chartViewportW,
                       height: chartBlockHeight,
-                      transform: [{ translateX: nowLineTranslateX }],
+                      transform: [{ translateX: nowLineScreenXAnim }],
                     }}
                   >
                     <View

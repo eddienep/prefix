@@ -1,3 +1,4 @@
+import dayjs from 'dayjs'
 import type { CaffeineEntry } from './types'
 
 const MS_PER_HOUR = 1000 * 60 * 60
@@ -51,10 +52,15 @@ export function buildSeries(
   stepMinutes: number
 ): ChartPoint[] {
   const out: ChartPoint[] = []
-  const stepMs = stepMinutes * 60 * 1000
-  for (let ms = start.getTime(); ms <= end.getTime(); ms += stepMs) {
-    const d = new Date(ms)
-    out.push({ t: ms, caffeine_mg: totalCaffeineAt(entries, d, halfLifeHours) })
+  const endMs = end.getTime()
+  let d = dayjs(start)
+  while (d.valueOf() <= endMs) {
+    const ms = d.valueOf()
+    out.push({
+      t: ms,
+      caffeine_mg: totalCaffeineAt(entries, new Date(ms), halfLifeHours),
+    })
+    d = d.add(stepMinutes, 'minute')
   }
   return out
 }
