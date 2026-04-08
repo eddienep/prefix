@@ -1441,14 +1441,12 @@ function makeStyles(c: ThemeColors) {
     statsRowTop: {
       flexDirection: 'row',
       gap: 16,
-      marginBottom: 12,
+      marginBottom: 22,
     },
     statCol: { flex: 1 },
-    statLabel: { fontSize: 12, color: c.muted, marginBottom: 6 },
-    /** Shared height so 18px values sit on the same bottom edge as the 28px “Current” value. */
+    statLabel: { fontSize: 12, color: c.muted, marginBottom: 2 },
     statValueRow: {
-      minHeight: 36,
-      justifyContent: 'flex-end',
+      justifyContent: 'flex-start',
     },
     statValue: { fontSize: 28, fontWeight: '700', color: c.textStrong },
     statValueSmall: { fontSize: 18 },
