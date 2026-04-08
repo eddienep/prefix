@@ -48,6 +48,7 @@ import localizedFormat from 'dayjs/plugin/localizedFormat'
 import {
   buildSeries,
   dateWhenBelowThreshold,
+  effectiveSleepThresholdMg,
   scaledCaffeineMg,
   sleepThresholdMg,
   totalCaffeineAt,
@@ -421,10 +422,20 @@ function Screen() {
   const saveSettingsAndClose = useCallback(() => {
     const half = Math.max(0.5, Number(draftSettings.halfLifeHours) || 5)
     const w = Math.max(1, Number(draftSettings.weightValue) || DEFAULT_SETTINGS.weightValue)
+    const rawCustom = Number(draftSettings.sleepThresholdCustomMg)
+    const fallbackCustom = sleepThresholdMg(weightToKg(w, draftSettings.weightUnit))
+    const customMg = Math.max(
+      0,
+      Math.min(
+        5000,
+        Number.isFinite(rawCustom) ? rawCustom : fallbackCustom
+      )
+    )
     setSettings({
       ...draftSettings,
       halfLifeHours: half,
       weightValue: w,
+      sleepThresholdCustomMg: customMg,
     })
     setThemePreference(draftTheme)
     setRoute('home')
@@ -477,7 +488,19 @@ function Screen() {
   const c = PALETTE[scheme]
 
   const weightKg = weightToKg(settings.weightValue, settings.weightUnit)
-  const thresholdMg = sleepThresholdMg(weightKg)
+  const thresholdMg = useMemo(
+    () =>
+      effectiveSleepThresholdMg(
+        weightKg,
+        settings.sleepThresholdUseCustom,
+        settings.sleepThresholdCustomMg
+      ),
+    [
+      weightKg,
+      settings.sleepThresholdUseCustom,
+      settings.sleepThresholdCustomMg,
+    ]
+  )
   const currentMg = totalCaffeineAt(entries, now, settings.halfLifeHours)
   const alreadySleepSafe = currentMg <= thresholdMg
   const { untilSafe, sleepSafeAt } = useMemo(() => {
@@ -991,6 +1014,12 @@ function Screen() {
 
   const styles = useMemo(() => makeStyles(c), [c])
 
+  const draftWeightKg = weightToKg(
+    draftSettings.weightValue,
+    draftSettings.weightUnit
+  )
+  const draftRecommendedSleepMg = sleepThresholdMg(draftWeightKg)
+
   if (!hydrated) {
     return (
       <View style={[styles.centered, { backgroundColor: c.bg }]}>
@@ -1094,6 +1123,86 @@ function Screen() {
                 }
               />
               <Text style={styles.hint}>Typical average ~5 h.</Text>
+            </View>
+
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Sleep-safe threshold</Text>
+              <Text style={[styles.hint, { marginBottom: 10 }]}>
+                Level used for “sleep-safe” on the chart and summary. Default is
+                1.5 mg/kg from your body weight ({draftRecommendedSleepMg.toFixed(0)}{' '}
+                mg right now).
+              </Text>
+              <View style={styles.unitRow}>
+                <Pressable
+                  onPress={() =>
+                    setDraftSettings((s) => ({
+                      ...s,
+                      sleepThresholdUseCustom: false,
+                    }))
+                  }
+                  style={[
+                    styles.unitChip,
+                    !draftSettings.sleepThresholdUseCustom && styles.unitChipOn,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.unitChipText,
+                      !draftSettings.sleepThresholdUseCustom &&
+                        styles.unitChipTextOn,
+                    ]}
+                  >
+                    Recommended
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() =>
+                    setDraftSettings((s) => {
+                      const wkg = weightToKg(s.weightValue, s.weightUnit)
+                      const rec = sleepThresholdMg(wkg)
+                      return {
+                        ...s,
+                        sleepThresholdUseCustom: true,
+                        sleepThresholdCustomMg: s.sleepThresholdUseCustom
+                          ? s.sleepThresholdCustomMg
+                          : rec,
+                      }
+                    })
+                  }
+                  style={[
+                    styles.unitChip,
+                    draftSettings.sleepThresholdUseCustom && styles.unitChipOn,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.unitChipText,
+                      draftSettings.sleepThresholdUseCustom &&
+                        styles.unitChipTextOn,
+                    ]}
+                  >
+                    Custom
+                  </Text>
+                </Pressable>
+              </View>
+              {draftSettings.sleepThresholdUseCustom ? (
+                <>
+                  <Text style={[styles.label, { marginTop: 12 }]}>
+                    Sleep-safe level (mg)
+                  </Text>
+                  <TextInput
+                    style={styles.input}
+                    keyboardType="decimal-pad"
+                    value={String(draftSettings.sleepThresholdCustomMg)}
+                    onChangeText={(t) =>
+                      setDraftSettings((s) => ({
+                        ...s,
+                        sleepThresholdCustomMg: Number(t.replace(',', '.')) || 0,
+                      }))
+                    }
+                  />
+                </>
+              ) : null}
             </View>
 
             <View style={styles.card}>

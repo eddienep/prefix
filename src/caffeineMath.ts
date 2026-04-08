@@ -23,6 +23,20 @@ export function sleepThresholdMg(weightKg: number): number {
   return 1.5 * weightKg
 }
 
+/**
+ * Sleep-safe caffeine (mg): **1.5 mg/kg** from weight, or a manual mg when `useCustom`.
+ */
+export function effectiveSleepThresholdMg(
+  weightKg: number,
+  useCustom: boolean,
+  customMg: number
+): number {
+  const recommended = sleepThresholdMg(weightKg)
+  if (!useCustom) return recommended
+  if (!Number.isFinite(customMg) || customMg < 0) return recommended
+  return customMg
+}
+
 export function totalCaffeineAt(
   entries: CaffeineEntry[],
   at: Date,

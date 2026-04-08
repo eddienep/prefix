@@ -37,6 +37,16 @@ export async function loadState(): Promise<PersistedState> {
         ...DEFAULT_SETTINGS,
         ...parsed.settings,
         weightUnit: parsed.settings?.weightUnit === 'lb' ? 'lb' : 'kg',
+        sleepThresholdUseCustom: Boolean(
+          parsed.settings?.sleepThresholdUseCustom
+        ),
+        sleepThresholdCustomMg: (() => {
+          const raw = parsed.settings?.sleepThresholdCustomMg
+          if (typeof raw === 'number' && Number.isFinite(raw)) {
+            return Math.max(0, raw)
+          }
+          return DEFAULT_SETTINGS.sleepThresholdCustomMg
+        })(),
       },
       themePreference,
     }

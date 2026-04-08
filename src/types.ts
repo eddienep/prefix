@@ -20,10 +20,19 @@ export interface AppSettings {
   weightValue: number
   weightUnit: WeightUnit
   halfLifeHours: number
+  /**
+   * When false, sleep-safe threshold is **1.5 mg/kg** from body weight (recommended).
+   * When true, `sleepThresholdCustomMg` is used instead.
+   */
+  sleepThresholdUseCustom: boolean
+  /** Milligrams; only used when `sleepThresholdUseCustom` is true. */
+  sleepThresholdCustomMg: number
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
   weightValue: 70,
   weightUnit: 'kg',
   halfLifeHours: 5,
+  sleepThresholdUseCustom: false,
+  sleepThresholdCustomMg: 105,
 }
