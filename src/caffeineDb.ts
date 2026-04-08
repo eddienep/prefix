@@ -1,4 +1,5 @@
 import raw from './caffeineDatabase.json'
+import { GENERIC_CAFFEINE_ITEMS } from './genericCaffeineItems'
 
 export type CaffeineSourceRow = {
   name: string
@@ -40,9 +41,24 @@ export const CAFFEINE_SOURCE_ITEMS: CaffeineSourceRow[] = loaded
 export const CAFFEINE_ITEMS_WITH_CAFFEINE: CaffeineSourceRow[] =
   CAFFEINE_SOURCE_ITEMS.filter((r) => r.mg > 0)
 
-const DB_NAMES_WITH_CAFFEINE = new Set(
-  CAFFEINE_ITEMS_WITH_CAFFEINE.map((r) => r.name)
-)
+/** Generic shortcuts first, then CSV catalog; duplicate `name` keeps the generic row. */
+export const CAFFEINE_PICKER_ITEMS: CaffeineSourceRow[] = (() => {
+  const seen = new Set<string>()
+  const out: CaffeineSourceRow[] = []
+  for (const r of GENERIC_CAFFEINE_ITEMS) {
+    if (seen.has(r.name)) continue
+    seen.add(r.name)
+    out.push(r)
+  }
+  for (const r of CAFFEINE_ITEMS_WITH_CAFFEINE) {
+    if (seen.has(r.name)) continue
+    seen.add(r.name)
+    out.push(r)
+  }
+  return out
+})()
+
+const PICKER_DB_NAMES = new Set(CAFFEINE_PICKER_ITEMS.map((r) => r.name))
 
 export type EntryForRecentPick = {
   timestamp: string
@@ -59,8 +75,8 @@ export type EntryForRecentPick = {
  */
 export function recentPickerRowsFromEntries(
   entries: readonly EntryForRecentPick[],
-  dbNames: ReadonlySet<string> = DB_NAMES_WITH_CAFFEINE,
-  db: readonly CaffeineSourceRow[] = CAFFEINE_ITEMS_WITH_CAFFEINE
+  dbNames: ReadonlySet<string> = PICKER_DB_NAMES,
+  db: readonly CaffeineSourceRow[] = CAFFEINE_PICKER_ITEMS
 ): CaffeinePickerRow[] {
   const byName = new Map(db.map((r) => [r.name, r]))
   const sorted = [...entries].sort(
@@ -111,14 +127,15 @@ export function recentPickerRowsFromEntries(
 }
 
 /**
- * Build SectionList sections: while searching, a single "Results" section;
- * otherwise "Recent" (if any) plus one section per category (A–Z), excluding
- * recent items from category lists to avoid duplicates.
+ * Build SectionList sections:
+ * - **Search:** one "Results" section over the full picker DB (generic + catalog).
+ * - **Browse:** "Recent" (if any) and a single "Generic" section only; other
+ *   catalog products appear only when the user searches.
  */
 export function buildCaffeinePickerSections(
   query: string,
   recentRows: readonly CaffeinePickerRow[],
-  db: readonly CaffeineSourceRow[] = CAFFEINE_ITEMS_WITH_CAFFEINE
+  db: readonly CaffeineSourceRow[] = CAFFEINE_PICKER_ITEMS
 ): CaffeinePickerSection[] {
   const q = query.trim().toLowerCase()
   const match = (row: CaffeineSourceRow) =>
@@ -151,28 +168,21 @@ export function buildCaffeinePickerSections(
     sections.push({ title: 'Recent', key: 'recent', data: recentItems })
   }
 
-  const recentSet = new Set(
-    recentItems.map((r) =>
-      isCustomRecentPickRow(r) ? r.recentKey : r.name
+  const recentNameSet = new Set(
+    recentItems.map((r) => (isCustomRecentPickRow(r) ? null : r.name)).filter(
+      (n): n is string => n != null
     )
   )
-  const byCat = new Map<string, CaffeineSourceRow[]>()
-  for (const row of db) {
-    if (!match(row)) continue
-    if (recentSet.has(row.name)) continue
-    const list = byCat.get(row.category)
-    if (list) list.push(row)
-    else byCat.set(row.category, [row])
-  }
 
-  const cats = [...byCat.keys()].sort((a, b) => a.localeCompare(b))
-  for (const cat of cats) {
-    const data = (byCat.get(cat) ?? []).sort((a, b) =>
-      a.name.localeCompare(b.name)
-    )
-    if (data.length > 0) {
-      sections.push({ title: cat, key: cat, data })
-    }
+  const genericData = GENERIC_CAFFEINE_ITEMS.filter(
+    (row) => !recentNameSet.has(row.name)
+  )
+  if (genericData.length > 0) {
+    sections.push({
+      title: 'Generic',
+      key: 'generic',
+      data: genericData,
+    })
   }
 
   return sections
