@@ -316,6 +316,36 @@ function buildScrollableLineData(series: ChartPoint[], muted: string) {
   return { lineData }
 }
 
+type ConsumptionDayGroup = {
+  dayKey: string
+  label: string
+  entries: CaffeineEntry[]
+}
+
+/** Preserves `sorted` order within each calendar day (newest first per day). */
+function groupEntriesByConsumptionDay(
+  sorted: CaffeineEntry[]
+): ConsumptionDayGroup[] {
+  const today = dayjs().startOf('day')
+  const yesterday = today.subtract(1, 'day')
+  const map = new Map<string, CaffeineEntry[]>()
+  for (const e of sorted) {
+    const key = dayjs(e.timestamp).format('YYYY-MM-DD')
+    const arr = map.get(key)
+    if (arr) arr.push(e)
+    else map.set(key, [e])
+  }
+  const keys = [...map.keys()].sort((a, b) => b.localeCompare(a))
+  return keys.map((dayKey) => {
+    const d = dayjs(dayKey, 'YYYY-MM-DD')
+    let label: string
+    if (d.isSame(today, 'day')) label = 'Today'
+    else if (d.isSame(yesterday, 'day')) label = 'Yesterday'
+    else label = d.format('dddd, MMMM D, YYYY')
+    return { dayKey, label, entries: map.get(dayKey)! }
+  })
+}
+
 /**
  * Log overlay: plain `View` on iOS + `ScrollView` keyboard insets; `KeyboardAvoidingView`
  * on Android. (Avoids stacking KAV with full-screen layouts.)
@@ -782,6 +812,11 @@ function Screen() {
     [entries]
   )
 
+  const consumptionDayGroups = useMemo(
+    () => groupEntriesByConsumptionDay(sortedEntries),
+    [sortedEntries]
+  )
+
   const styles = useMemo(() => makeStyles(c), [c])
 
   if (!hydrated) {
@@ -933,47 +968,50 @@ function Screen() {
           style={styles.flex}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
+          <View style={styles.homeHeaderStrip}>
+            <View style={styles.headerRow}>
+              <View
+                style={[
+                  styles.headerLogoChip,
+                  {
+                    backgroundColor:
+                      scheme === 'dark'
+                        ? PREFIX_LOGO_CHIP_BG_DARK
+                        : 'transparent',
+                  },
+                ]}
+              >
+                <Image
+                  source={
+                    scheme === 'dark'
+                      ? PREFIX_LOGO_DARK_THEME
+                      : PREFIX_LOGO_LIGHT_THEME
+                  }
+                  style={styles.headerLogoImage}
+                  resizeMode="contain"
+                  accessibilityLabel="Prefix"
+                />
+              </View>
+              <View style={{ flex: 1, paddingRight: 8 }}>
+                <Text style={styles.title}>Caffeine Curve</Text>
+                {/* <Text style={styles.tagline}>
+                Decay curve vs a simple sleep-safe line (1.5 mg/kg). Awareness
+                only—not medical advice.
+              </Text> */}
+              </View>
+            </View>
+          </View>
           <ScrollView
             contentContainerStyle={[
-              styles.scrollContent,
+              styles.homeScrollContent,
               { paddingBottom: 24 + bottomNavClearance },
             ]}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
             nestedScrollEnabled
+            automaticallyAdjustContentInsets={false}
+            contentInsetAdjustmentBehavior="never"
           >
-          <View style={styles.headerRow}>
-            <View
-              style={[
-                styles.headerLogoChip,
-                {
-                  backgroundColor:
-                    scheme === 'dark'
-                      ? PREFIX_LOGO_CHIP_BG_DARK
-                      : 'transparent',
-                },
-              ]}
-            >
-              <Image
-                source={
-                  scheme === 'dark'
-                    ? PREFIX_LOGO_DARK_THEME
-                    : PREFIX_LOGO_LIGHT_THEME
-                }
-                style={styles.headerLogoImage}
-                resizeMode="contain"
-                accessibilityLabel="Prefix"
-              />
-            </View>
-            <View style={{ flex: 1, paddingRight: 8 }}>
-              <Text style={styles.title}>Caffeine Curve</Text>
-              {/* <Text style={styles.tagline}>
-                Decay curve vs a simple sleep-safe line (1.5 mg/kg). Awareness
-                only—not medical advice.
-              </Text> */}
-            </View>
-          </View>
-
           <View style={styles.activeCaffeineSection}>
             <Text style={styles.cardTitle}>Summary</Text>
             <View style={styles.statsRowTop}>
@@ -1155,22 +1193,46 @@ function Screen() {
             </View>
           </View>
 
-          {sortedEntries.length > 0 && (
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>Recent entries</Text>
-              {sortedEntries.map((e) => (
-                <View key={e.id} style={styles.entryRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.entryTitle}>
-                      {e.caffeine_mg} mg · {e.label}
-                    </Text>
-                    <Text style={styles.entryMeta}>
-                      {dayjs(e.timestamp).format('lll')}
-                    </Text>
-                  </View>
-                  <Pressable onPress={() => removeEntry(e.id)} hitSlop={8}>
-                    <Text style={styles.removeText}>Remove</Text>
-                  </Pressable>
+          {consumptionDayGroups.length > 0 && (
+            <View style={styles.consumptionSection}>
+              <Text style={styles.cardTitle}>Caffeine Consumption</Text>
+              {consumptionDayGroups.map((group, gi) => (
+                <View
+                  key={group.dayKey}
+                  style={gi > 0 ? styles.consumptionDayBlock : undefined}
+                >
+                  <Text
+                    style={[styles.consumptionDayHeading, { color: c.muted }]}
+                  >
+                    {group.label}
+                  </Text>
+                  {group.entries.map((e, ei) => {
+                    const isLastInGroup = ei === group.entries.length - 1
+                    return (
+                      <View
+                        key={e.id}
+                        style={[
+                          styles.entryRow,
+                          isLastInGroup && styles.entryRowGroupLast,
+                        ]}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.entryTitle}>
+                            {e.caffeine_mg} mg · {e.label}
+                          </Text>
+                          <Text style={styles.entryMeta}>
+                            {dayjs(e.timestamp).format('lll')}
+                          </Text>
+                        </View>
+                        <Pressable
+                          onPress={() => removeEntry(e.id)}
+                          hitSlop={8}
+                        >
+                          <Text style={styles.removeText}>Remove</Text>
+                        </Pressable>
+                      </View>
+                    )
+                  })}
                 </View>
               ))}
             </View>
@@ -1430,6 +1492,16 @@ function makeStyles(c: ThemeColors) {
       fontWeight: '700',
     },
     scrollContent: { paddingHorizontal: 16, paddingTop: 8 },
+    /** Same horizontal inset as section titles (`cardTitle`); header sits outside ScrollView here. */
+    homeHeaderStrip: {
+      paddingHorizontal: 16,
+      paddingTop: 8,
+      marginBottom: 16,
+    },
+    homeScrollContent: {
+      paddingHorizontal: 16,
+      paddingTop: 0,
+    },
     centered: {
       flex: 1,
       alignItems: 'center',
@@ -1463,7 +1535,6 @@ function makeStyles(c: ThemeColors) {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 12,
-      marginBottom: 16,
     },
     headerLogoChip: {
       width: 52,
@@ -1472,10 +1543,14 @@ function makeStyles(c: ThemeColors) {
       alignItems: 'center',
       justifyContent: 'center',
       overflow: 'hidden',
+      /** Optical align with section titles (asset + chip centering add rightward slack). */
+      marginLeft: -5,
     },
     headerLogoImage: {
       width: 40,
       height: 40,
+      /** Shift raster slightly left inside the chip toward the visible glyph. */
+      marginLeft: -2,
     },
     title: {
       fontSize: 22,
@@ -1627,6 +1702,20 @@ function makeStyles(c: ThemeColors) {
     },
     activeCaffeineSection: {
       marginBottom: 14,
+    },
+    consumptionSection: {
+      marginBottom: 14,
+    },
+    consumptionDayBlock: {
+      marginTop: 16,
+    },
+    consumptionDayHeading: {
+      fontSize: 13,
+      fontWeight: '700',
+      marginBottom: 8,
+    },
+    entryRowGroupLast: {
+      borderBottomWidth: 0,
     },
     statsRowTop: {
       flexDirection: 'row',
