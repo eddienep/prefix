@@ -150,6 +150,66 @@ const ChartNowTimeOverlayLabel = memo(function ChartNowTimeOverlayLabel({
   )
 })
 
+const ENTRY_THUMB_SIZE = 44
+
+const EntryThumbnail = memo(function EntryThumbnail({
+  thumbnailUrl,
+  surfaceColor,
+  borderColor,
+}: {
+  thumbnailUrl?: string
+  surfaceColor: string
+  borderColor: string
+}) {
+  const trimmed = thumbnailUrl?.trim() ?? ''
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    setFailed(false)
+  }, [trimmed])
+
+  const showEmoji = !trimmed || failed
+
+  return (
+    <View
+      style={[
+        entryThumbBase,
+        {
+          borderColor,
+          backgroundColor: surfaceColor,
+        },
+      ]}
+    >
+      {showEmoji ? (
+        <Text style={entryThumbEmojiText} accessibilityLabel="Coffee">
+          ☕
+        </Text>
+      ) : (
+        <Image
+          source={{ uri: trimmed }}
+          style={StyleSheet.absoluteFillObject}
+          resizeMode="cover"
+          onError={() => setFailed(true)}
+          accessibilityIgnoresInvertColors
+        />
+      )}
+    </View>
+  )
+})
+
+const entryThumbBase = {
+  width: ENTRY_THUMB_SIZE,
+  height: ENTRY_THUMB_SIZE,
+  borderRadius: 10,
+  borderWidth: 1,
+  overflow: 'hidden' as const,
+  alignItems: 'center' as const,
+  justifyContent: 'center' as const,
+  marginRight: 12,
+}
+
+const entryThumbEmojiText = { fontSize: 22 }
+
 const PALETTE = {
   light: {
     bg: '#f8fafc',
@@ -381,6 +441,7 @@ function Screen() {
   const [consumptionAt, setConsumptionAt] = useState(() => new Date())
   const [showPicker, setShowPicker] = useState(false)
   const [formLabel, setFormLabel] = useState('')
+  const [formThumbnailUrl, setFormThumbnailUrl] = useState('')
   const [logModalVisible, setLogModalVisible] = useState(false)
   const [showHomeScrollTopBtn, setShowHomeScrollTopBtn] = useState(false)
   const homeScrollRef = useRef<ComponentRef<typeof ScrollView> | null>(null)
@@ -825,16 +886,19 @@ function Screen() {
   const addEntry = useCallback(() => {
     const mg = Number(formMg)
     if (!Number.isFinite(mg) || mg <= 0) return
+    const thumb = formThumbnailUrl.trim()
     const entry: CaffeineEntry = {
       id: newId(),
       timestamp: consumptionAt.toISOString(),
       caffeine_mg: mg,
       label: formLabel.trim() || 'Caffeine',
+      ...(thumb ? { thumbnailUrl: thumb } : {}),
     }
     setEntries((prev) => [...prev, entry])
     setFormLabel('')
+    setFormThumbnailUrl('')
     closeLogModal()
-  }, [formMg, consumptionAt, formLabel, closeLogModal])
+  }, [formMg, consumptionAt, formLabel, formThumbnailUrl, closeLogModal])
 
   const removeEntry = useCallback((id: string) => {
     setEntries((prev) => prev.filter((e) => e.id !== id))
@@ -1290,6 +1354,11 @@ function Screen() {
                             isLastInGroup && styles.entryRowGroupLast,
                           ]}
                         >
+                          <EntryThumbnail
+                            thumbnailUrl={e.thumbnailUrl}
+                            surfaceColor={c.surface}
+                            borderColor={c.border}
+                          />
                           <View style={{ flex: 1 }}>
                             <Text style={styles.entryTitle}>
                               {e.caffeine_mg} mg · {e.label}
@@ -1498,6 +1567,19 @@ function Screen() {
                 placeholderTextColor={c.muted}
                 value={formLabel}
                 onChangeText={setFormLabel}
+              />
+              <Text style={[styles.label, { marginTop: 12 }]}>
+                Thumbnail URL (optional)
+              </Text>
+              <TextInput
+                style={styles.input}
+                placeholder="https://…"
+                placeholderTextColor={c.muted}
+                value={formThumbnailUrl}
+                onChangeText={setFormThumbnailUrl}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="url"
               />
               <Pressable style={styles.primaryBtn} onPress={addEntry}>
                 <Text style={styles.primaryBtnText}>Add entry</Text>

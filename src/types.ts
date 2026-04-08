@@ -5,6 +5,8 @@ export interface CaffeineEntry {
   timestamp: string
   caffeine_mg: number
   label: string
+  /** Optional image URL shown in the consumption list; falls back to ☕ when missing or invalid. */
+  thumbnailUrl?: string
 }
 
 export interface AppSettings {
