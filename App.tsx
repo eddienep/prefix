@@ -376,6 +376,9 @@ function Screen() {
   const [showPicker, setShowPicker] = useState(false)
   const [formLabel, setFormLabel] = useState('')
   const [logModalVisible, setLogModalVisible] = useState(false)
+  const [showHomeScrollTopBtn, setShowHomeScrollTopBtn] = useState(false)
+  const homeScrollRef = useRef<ScrollView>(null)
+  const homeScrollTopOpacity = useRef(new Animated.Value(0)).current
 
   const [route, setRoute] = useState<'home' | 'settings'>('home')
   const [draftSettings, setDraftSettings] = useState<AppSettings>(DEFAULT_SETTINGS)
@@ -785,6 +788,34 @@ function Screen() {
     return () => sub.remove()
   }, [logModalVisible, closeLogModal])
 
+  const homeScrollTopBtnShown =
+    route === 'home' && showHomeScrollTopBtn && !logModalVisible
+
+  useEffect(() => {
+    Animated.spring(homeScrollTopOpacity, {
+      toValue: homeScrollTopBtnShown ? 1 : 0,
+      useNativeDriver: true,
+      friction: 8,
+      tension: 70,
+    }).start()
+  }, [homeScrollTopBtnShown, homeScrollTopOpacity])
+
+  const onHomeScroll = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const y = e.nativeEvent.contentOffset.y
+      setShowHomeScrollTopBtn((prev) => {
+        if (y > 160) return true
+        if (y < 100) return false
+        return prev
+      })
+    },
+    []
+  )
+
+  const scrollHomeToTop = useCallback(() => {
+    homeScrollRef.current?.scrollTo({ y: 0, animated: true })
+  }, [])
+
   const addEntry = useCallback(() => {
     const mg = Number(formMg)
     if (!Number.isFinite(mg) || mg <= 0) return
@@ -1002,6 +1033,7 @@ function Screen() {
             </View>
           </View>
           <ScrollView
+            ref={homeScrollRef}
             contentContainerStyle={[
               styles.homeScrollContent,
               { paddingBottom: 24 + bottomNavClearance },
@@ -1011,6 +1043,8 @@ function Screen() {
             nestedScrollEnabled
             automaticallyAdjustContentInsets={false}
             contentInsetAdjustmentBehavior="never"
+            onScroll={onHomeScroll}
+            scrollEventThrottle={16}
           >
           <View style={styles.activeCaffeineSection}>
             <Text style={styles.cardTitle}>Summary</Text>
@@ -1284,6 +1318,40 @@ function Screen() {
             </Pressable>
           </View>
         </View>
+
+        <Animated.View
+          pointerEvents={homeScrollTopBtnShown ? 'box-none' : 'none'}
+          style={[
+            styles.homeScrollTopFab,
+            {
+              opacity: homeScrollTopOpacity,
+              transform: [
+                {
+                  scale: homeScrollTopOpacity.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.88, 1],
+                  }),
+                },
+              ],
+            },
+          ]}
+        >
+          <Pressable
+            onPress={scrollHomeToTop}
+            style={({ pressed }) => [
+              styles.homeScrollTopFabInner,
+              {
+                backgroundColor: c.surface,
+                borderColor: c.border,
+                opacity: pressed ? 0.85 : 1,
+              },
+            ]}
+            accessibilityLabel="Scroll to top"
+            accessibilityRole="button"
+          >
+            <Ionicons name="chevron-up" size={24} color={c.accent} />
+          </Pressable>
+        </Animated.View>
       </View>
 
       {logModalVisible ? (
@@ -1449,6 +1517,25 @@ function makeStyles(c: ThemeColors) {
     homeBottomNavIconBtn: {
       padding: 6,
       borderRadius: 10,
+    },
+    homeScrollTopFab: {
+      position: 'absolute',
+      left: 16,
+      bottom: 78,
+      zIndex: 60,
+      elevation: 6,
+    },
+    homeScrollTopFabInner: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      borderWidth: StyleSheet.hairlineWidth,
+      alignItems: 'center',
+      justifyContent: 'center',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.18,
+      shadowRadius: 4,
     },
     logFab: {
       width: 58,
