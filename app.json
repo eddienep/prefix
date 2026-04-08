@@ -35,8 +35,9 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "4d7777e7-464c-4a94-a64c-acd555d22823"
+        "projectId": "35278daa-6744-4f46-9950-a38465a1a7e5"
       }
-    }
+    },
+    "owner": "eddienep"
   }
 }

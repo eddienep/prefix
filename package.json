@@ -3,13 +3,17 @@
   "version": "1.0.0",
   "main": "index.ts",
   "private": true,
+  "engines": {
+    "node": ">=20.19.4"
+  },
   "scripts": {
     "postinstall": "patch-package",
     "generate:caffeine-db": "node scripts/parse-caffeine-csv.js",
     "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web"
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "web": "expo start --web",
+    "eas": "eas"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
@@ -28,6 +32,7 @@
   },
   "devDependencies": {
     "@types/react": "~19.1.0",
+    "eas-cli": "^18.5.0",
     "patch-package": "^8.0.1",
     "typescript": "~5.9.2"
   }

@@ -1277,7 +1277,7 @@ function Screen() {
                 />
               </View>
               <View style={{ flex: 1, paddingRight: 8 }}>
-                <Text style={styles.title}>Caffeine Curve</Text>
+                <Text style={styles.title}>Stim Check</Text>
                 {/* <Text style={styles.tagline}>
                 Decay curve vs a simple sleep-safe line (1.5 mg/kg). Awareness
                 only—not medical advice.
