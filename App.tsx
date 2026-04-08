@@ -1051,6 +1051,9 @@ function Screen() {
             contentInsetAdjustmentBehavior="never"
             onScroll={onHomeScroll}
             scrollEventThrottle={16}
+            stickyHeaderIndices={
+              consumptionDayGroups.length > 0 ? [1] : undefined
+            }
           >
           <View style={styles.activeCaffeineSection}>
             <Text style={styles.cardTitle}>Summary</Text>
@@ -1233,9 +1236,15 @@ function Screen() {
             </View>
           </View>
 
-          {consumptionDayGroups.length > 0 && (
-            <View style={styles.consumptionSection}>
+          {consumptionDayGroups.length > 0 ? (
+            <View
+              style={[styles.consumptionStickyHeader, { backgroundColor: c.bg }]}
+            >
               <Text style={styles.cardTitle}>Caffeine Consumption</Text>
+            </View>
+          ) : null}
+          {consumptionDayGroups.length > 0 ? (
+            <View style={styles.consumptionSection}>
               {consumptionDayGroups.map((group, gi) => (
                 <View
                   key={group.dayKey}
@@ -1296,7 +1305,7 @@ function Screen() {
                 </View>
               ))}
             </View>
-          )}
+          ) : null}
 
           <Text style={styles.disclaimer}>
             Fixed half-life and a rough mg/kg cutoff for education only. Not
@@ -1823,6 +1832,10 @@ function makeStyles(c: ThemeColors) {
     },
     activeCaffeineSection: {
       marginBottom: 0,
+    },
+    /** Direct child of home ScrollView for `stickyHeaderIndices`; opaque bg when rows scroll under. */
+    consumptionStickyHeader: {
+      zIndex: 1,
     },
     consumptionSection: {
       marginBottom: 14,
