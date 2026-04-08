@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Caffeine Half-Life",
-    "slug": "caffeine-half-life-tracker",
+    "name": "Stim Check",
+    "slug": "stim-check",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/prefixlogowhite.png",
@@ -14,7 +14,10 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.caffeinehalflife.tracker"
+      "bundleIdentifier": "com.stimcheck.app",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -22,13 +25,18 @@
         "backgroundColor": "#0f172a"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.caffeinehalflife.tracker"
+      "package": "com.stimcheck.app"
     },
     "web": {
       "favicon": "./assets/prefixlogowhite.png"
     },
     "plugins": [
       "@react-native-community/datetimepicker"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "4d7777e7-464c-4a94-a64c-acd555d22823"
+      }
+    }
   }
 }
