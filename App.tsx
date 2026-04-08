@@ -70,12 +70,6 @@ import { DEFAULT_SETTINGS } from './src/types'
 
 dayjs.extend(localizedFormat)
 
-const PRESETS: { label: string; mg: number }[] = [
-  { label: 'Coffee ~95', mg: 95 },
-  { label: 'Energy ~160', mg: 160 },
-  { label: 'Pre-workout ~200', mg: 200 },
-]
-
 /** Sample interval for scrollable timeline (minutes). */
 const CHART_STEP_MIN = 60
 const INITIAL_PAST_DAYS = 21
@@ -388,7 +382,6 @@ function Screen() {
   const [consumptionAt, setConsumptionAt] = useState(() => new Date())
   const [showPicker, setShowPicker] = useState(false)
   const [formLabel, setFormLabel] = useState('')
-  const [formThumbnailUrl, setFormThumbnailUrl] = useState('')
   const [sourceSearch, setSourceSearch] = useState('')
   const [logModalVisible, setLogModalVisible] = useState(false)
   /** Second-step sheet: amount, time, label, add (opened from list pick or “Custom”). */
@@ -858,43 +851,30 @@ function Screen() {
   }, [])
 
   const addEntry = useCallback(() => {
-    const mg = Number(formMg)
+    const fromDb = logEntrySourcePreview
+    const mg = fromDb ? fromDb.mg : Number(formMg)
     if (!Number.isFinite(mg) || mg <= 0) return
-    const thumb = formThumbnailUrl.trim()
-    const productNameForRecent = logEntrySourcePreview?.name
+    const thumb = fromDb?.image_url?.trim()
     const entry: CaffeineEntry = {
       id: newId(),
       timestamp: consumptionAt.toISOString(),
       caffeine_mg: mg,
-      label: formLabel.trim() || 'Caffeine',
+      label: fromDb ? fromDb.name : formLabel.trim() || 'Caffeine',
       ...(thumb ? { thumbnailUrl: thumb } : {}),
-      ...(productNameForRecent
-        ? { sourceProductName: productNameForRecent }
-        : {}),
+      ...(fromDb ? { sourceProductName: fromDb.name } : {}),
     }
     setEntries((prev) => [...prev, entry])
     setFormLabel('')
-    setFormThumbnailUrl('')
     setLogEntryDetailVisible(false)
     setLogEntrySourcePreview(null)
     closeLogModal()
-  }, [
-    formMg,
-    consumptionAt,
-    formLabel,
-    formThumbnailUrl,
-    logEntrySourcePreview,
-    closeLogModal,
-  ])
+  }, [formMg, consumptionAt, formLabel, logEntrySourcePreview, closeLogModal])
 
   const removeEntry = useCallback((id: string) => {
     setEntries((prev) => prev.filter((e) => e.id !== id))
   }, [])
 
   const onPickCaffeineSource = useCallback((row: CaffeineSourceRow) => {
-    setFormMg(String(row.mg))
-    setFormLabel(row.name)
-    setFormThumbnailUrl(row.image_url?.trim() ? row.image_url : '')
     setConsumptionAt(new Date())
     setShowPicker(false)
     setLogEntrySourcePreview(row)
@@ -904,7 +884,6 @@ function Screen() {
   const openCustomLogEntry = useCallback(() => {
     setFormMg('95')
     setFormLabel('')
-    setFormThumbnailUrl('')
     setConsumptionAt(new Date())
     setShowPicker(false)
     setLogEntrySourcePreview(null)
@@ -1666,13 +1645,46 @@ function Screen() {
                         styles.logEntryDetailScrollContent
                       }
                     >
-                      <Text style={styles.label}>Amount (mg)</Text>
-                      <TextInput
-                        style={styles.input}
-                        keyboardType="number-pad"
-                        value={formMg}
-                        onChangeText={setFormMg}
-                      />
+                      {logEntrySourcePreview ? (
+                        <>
+                          <Text style={styles.label}>Amount (mg)</Text>
+                          <View
+                            style={[
+                              styles.logEntryReadonlyField,
+                              { borderColor: c.border },
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.logEntryReadonlyAmountText,
+                                { color: c.textStrong },
+                              ]}
+                            >
+                              {logEntrySourcePreview.mg}
+                            </Text>
+                          </View>
+                        </>
+                      ) : (
+                        <>
+                          <Text style={styles.label}>Amount (mg)</Text>
+                          <TextInput
+                            style={styles.input}
+                            keyboardType="number-pad"
+                            value={formMg}
+                            onChangeText={setFormMg}
+                          />
+                          <Text style={[styles.label, { marginTop: 12 }]}>
+                            Label (optional)
+                          </Text>
+                          <TextInput
+                            style={styles.input}
+                            placeholder="e.g. coffee"
+                            placeholderTextColor={c.muted}
+                            value={formLabel}
+                            onChangeText={setFormLabel}
+                          />
+                        </>
+                      )}
                       <Text style={[styles.label, { marginTop: 12 }]}>
                         Time
                       </Text>
@@ -1706,45 +1718,9 @@ function Screen() {
                           <Text style={styles.donePickerText}>Done</Text>
                         </Pressable>
                       )}
-                      <Text style={[styles.label, { marginTop: 12 }]}>
-                        Label (optional)
-                      </Text>
-                      <TextInput
-                        style={styles.input}
-                        placeholder="e.g. coffee"
-                        placeholderTextColor={c.muted}
-                        value={formLabel}
-                        onChangeText={setFormLabel}
-                      />
-                      <Text style={[styles.label, { marginTop: 12 }]}>
-                        Thumbnail URL (optional)
-                      </Text>
-                      <TextInput
-                        style={styles.input}
-                        placeholder="https://…"
-                        placeholderTextColor={c.muted}
-                        value={formThumbnailUrl}
-                        onChangeText={setFormThumbnailUrl}
-                        autoCapitalize="none"
-                        autoCorrect={false}
-                        keyboardType="url"
-                      />
                       <Pressable style={styles.primaryBtn} onPress={addEntry}>
                         <Text style={styles.primaryBtnText}>Add entry</Text>
                       </Pressable>
-                      <View style={styles.presetRow}>
-                        {PRESETS.map((p) => (
-                          <Pressable
-                            key={p.label}
-                            onPress={() => setFormMg(String(p.mg))}
-                            style={styles.presetChip}
-                          >
-                            <Text style={styles.presetChipText}>
-                              {p.label}
-                            </Text>
-                          </Pressable>
-                        ))}
-                      </View>
                     </RNScrollView>
                   </View>
                 </View>
@@ -2043,6 +2019,18 @@ function makeStyles(c: ThemeColors) {
       color: c.textStrong,
       backgroundColor: c.inputBg,
     },
+    logEntryReadonlyField: {
+      borderWidth: 1,
+      borderRadius: 10,
+      paddingHorizontal: 12,
+      paddingVertical: 12,
+      backgroundColor: c.inputBg,
+      justifyContent: 'center',
+    },
+    logEntryReadonlyAmountText: {
+      fontSize: 16,
+      fontWeight: '700',
+    },
     hint: { marginTop: 8, fontSize: 12, color: c.muted },
     unitRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
     unitChip: {
@@ -2079,16 +2067,6 @@ function makeStyles(c: ThemeColors) {
       alignItems: 'center',
     },
     primaryBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
-    presetRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 },
-    presetChip: {
-      borderWidth: 1,
-      borderStyle: 'dashed',
-      borderColor: c.border,
-      borderRadius: 999,
-      paddingHorizontal: 12,
-      paddingVertical: 8,
-    },
-    presetChipText: { fontSize: 12, color: c.textStrong },
     entryRow: {
       flexDirection: 'row',
       alignItems: 'center',
