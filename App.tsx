@@ -9,6 +9,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
 } from 'react'
 import {
   ActivityIndicator,
@@ -19,6 +20,7 @@ import {
   type LayoutChangeEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
+  BackHandler,
   Platform,
   Pressable,
   ScrollView,
@@ -314,6 +316,21 @@ function buildScrollableLineData(series: ChartPoint[], muted: string) {
   return { lineData }
 }
 
+/**
+ * Log overlay: plain `View` on iOS + `ScrollView` keyboard insets; `KeyboardAvoidingView`
+ * on Android. (Avoids stacking KAV with full-screen layouts.)
+ */
+function LogModalBodyHost({ children }: { children: ReactNode }) {
+  if (Platform.OS === 'ios') {
+    return <View style={{ flex: 1 }}>{children}</View>
+  }
+  return (
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
+      {children}
+    </KeyboardAvoidingView>
+  )
+}
+
 function Screen() {
   const systemScheme = useColorScheme()
   const insets = useSafeAreaInsets()
@@ -328,6 +345,7 @@ function Screen() {
   const [consumptionAt, setConsumptionAt] = useState(() => new Date())
   const [showPicker, setShowPicker] = useState(false)
   const [formLabel, setFormLabel] = useState('')
+  const [logModalVisible, setLogModalVisible] = useState(false)
 
   const [route, setRoute] = useState<'home' | 'settings'>('home')
   const [draftSettings, setDraftSettings] = useState<AppSettings>(DEFAULT_SETTINGS)
@@ -723,6 +741,20 @@ function Screen() {
     updateChartViewDate(scrollXRef.current)
   }, [fullSeries, chartPointSpacing, updateChartViewDate, nowLineScreenXAnim])
 
+  const closeLogModal = useCallback(() => {
+    setLogModalVisible(false)
+    setShowPicker(false)
+  }, [])
+
+  useEffect(() => {
+    if (!logModalVisible) return
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      closeLogModal()
+      return true
+    })
+    return () => sub.remove()
+  }, [logModalVisible, closeLogModal])
+
   const addEntry = useCallback(() => {
     const mg = Number(formMg)
     if (!Number.isFinite(mg) || mg <= 0) return
@@ -734,7 +766,8 @@ function Screen() {
     }
     setEntries((prev) => [...prev, entry])
     setFormLabel('')
-  }, [formMg, consumptionAt, formLabel])
+    closeLogModal()
+  }, [formMg, consumptionAt, formLabel, closeLogModal])
 
   const removeEntry = useCallback((id: string) => {
     setEntries((prev) => prev.filter((e) => e.id !== id))
@@ -889,22 +922,26 @@ function Screen() {
     )
   }
 
+  /** Space for absolute bottom nav (inside safe area; SafeAreaView already pads home indicator). */
+  const bottomNavClearance = 86
+
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: c.bg }]}>
       <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <ScrollView
-          contentContainerStyle={[
-            styles.scrollContent,
-            { paddingBottom: 24 + insets.bottom },
-          ]}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-          nestedScrollEnabled
+      <View style={styles.homeRoot}>
+        <KeyboardAvoidingView
+          style={styles.flex}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
+          <ScrollView
+            contentContainerStyle={[
+              styles.scrollContent,
+              { paddingBottom: 24 + bottomNavClearance },
+            ]}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            nestedScrollEnabled
+          >
           <View style={styles.headerRow}>
             <View
               style={[
@@ -935,21 +972,6 @@ function Screen() {
                 only—not medical advice.
               </Text> */}
             </View>
-            <Pressable
-              onPress={openSettings}
-              accessibilityLabel="Open settings"
-              style={({ pressed }) => [
-                styles.gearBtn,
-                { opacity: pressed ? 0.65 : 1 },
-              ]}
-              hitSlop={10}
-            >
-              <Ionicons
-                name="settings-outline"
-                size={26}
-                color={c.textStrong}
-              />
-            </Pressable>
           </View>
 
           <View style={styles.activeCaffeineSection}>
@@ -1133,69 +1155,6 @@ function Screen() {
             </View>
           </View>
 
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Log caffeine</Text>
-            <Text style={styles.label}>Amount (mg)</Text>
-            <TextInput
-              style={styles.input}
-              keyboardType="number-pad"
-              value={formMg}
-              onChangeText={setFormMg}
-            />
-            <Text style={[styles.label, { marginTop: 12 }]}>Time</Text>
-            <Pressable
-              onPress={() => setShowPicker(true)}
-              style={styles.dateBtn}
-            >
-              <Text style={styles.dateBtnText}>
-                {dayjs(consumptionAt).format('lll')}
-              </Text>
-            </Pressable>
-            {showPicker && (
-              <DateTimePicker
-                value={consumptionAt}
-                mode="datetime"
-                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                onChange={(_, date) => {
-                  if (Platform.OS === 'android') setShowPicker(false)
-                  if (date) setConsumptionAt(date)
-                }}
-              />
-            )}
-            {Platform.OS === 'ios' && showPicker && (
-              <Pressable
-                style={styles.donePicker}
-                onPress={() => setShowPicker(false)}
-              >
-                <Text style={styles.donePickerText}>Done</Text>
-              </Pressable>
-            )}
-            <Text style={[styles.label, { marginTop: 12 }]}>
-              Label (optional)
-            </Text>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g. coffee"
-              placeholderTextColor={c.muted}
-              value={formLabel}
-              onChangeText={setFormLabel}
-            />
-            <Pressable style={styles.primaryBtn} onPress={addEntry}>
-              <Text style={styles.primaryBtnText}>Add entry</Text>
-            </Pressable>
-            <View style={styles.presetRow}>
-              {PRESETS.map((p) => (
-                <Pressable
-                  key={p.label}
-                  onPress={() => setFormMg(String(p.mg))}
-                  style={styles.presetChip}
-                >
-                  <Text style={styles.presetChipText}>{p.label}</Text>
-                </Pressable>
-              ))}
-            </View>
-          </View>
-
           {sortedEntries.length > 0 && (
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Recent entries</Text>
@@ -1222,7 +1181,178 @@ function Screen() {
             medical advice.
           </Text>
         </ScrollView>
-      </KeyboardAvoidingView>
+        </KeyboardAvoidingView>
+
+        <View
+          style={[
+            styles.homeBottomNav,
+            {
+              backgroundColor: c.bg,
+              borderTopColor: c.border,
+            },
+          ]}
+        >
+          <View style={styles.homeBottomNavSide} />
+          <Pressable
+            onPress={() => setLogModalVisible(true)}
+            style={({ pressed }) => [
+              styles.logFab,
+              { backgroundColor: c.accent, opacity: pressed ? 0.9 : 1 },
+            ]}
+            accessibilityLabel="Log caffeine"
+            accessibilityRole="button"
+          >
+            <Ionicons name="add" size={30} color="#fff" />
+          </Pressable>
+          <View style={[styles.homeBottomNavSide, styles.homeBottomNavSideEnd]}>
+            <Pressable
+              onPress={openSettings}
+              accessibilityLabel="Open settings"
+              style={({ pressed }) => [
+                styles.homeBottomNavIconBtn,
+                { opacity: pressed ? 0.65 : 1 },
+              ]}
+              hitSlop={10}
+            >
+              <Ionicons
+                name="settings-outline"
+                size={22}
+                color={c.textStrong}
+              />
+            </Pressable>
+          </View>
+        </View>
+      </View>
+
+      {logModalVisible ? (
+        <>
+          <View
+            style={[styles.logModalBackdrop, { backgroundColor: c.bg }]}
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+          />
+          <View
+            style={[
+              styles.logModalOverlayRoot,
+              {
+                backgroundColor: c.bg,
+                top: insets.top,
+                left: insets.left,
+                right: insets.right,
+                bottom: insets.bottom,
+              },
+            ]}
+            accessibilityViewIsModal={Platform.OS === 'ios'}
+            importantForAccessibility="yes"
+          >
+          <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
+          <View
+            style={[
+              styles.logModalHeaderBar,
+              {
+                paddingTop: 10,
+                paddingHorizontal: 16,
+                paddingBottom: 10,
+                borderBottomColor: c.border,
+              },
+            ]}
+          >
+            <Text style={[styles.logModalTitle, { color: c.textStrong }]}>
+              Log caffeine
+            </Text>
+            <Pressable
+              onPress={closeLogModal}
+              hitSlop={16}
+              style={styles.logModalCloseBtn}
+              accessibilityLabel="Close"
+              accessibilityRole="button"
+            >
+              <Ionicons name="close" size={26} color={c.muted} />
+            </Pressable>
+          </View>
+          <LogModalBodyHost>
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+              automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+              keyboardDismissMode={
+                Platform.OS === 'ios' ? 'interactive' : 'on-drag'
+              }
+              bounces={Platform.OS !== 'ios'}
+              alwaysBounceVertical={false}
+              contentContainerStyle={[
+                styles.logModalScrollContent,
+                {
+                  paddingHorizontal: 16,
+                  paddingTop: 16,
+                  paddingBottom: 24,
+                },
+              ]}
+            >
+              <Text style={styles.label}>Amount (mg)</Text>
+              <TextInput
+                style={styles.input}
+                keyboardType="number-pad"
+                value={formMg}
+                onChangeText={setFormMg}
+              />
+              <Text style={[styles.label, { marginTop: 12 }]}>Time</Text>
+              <Pressable
+                onPress={() => setShowPicker(true)}
+                style={styles.dateBtn}
+              >
+                <Text style={styles.dateBtnText}>
+                  {dayjs(consumptionAt).format('lll')}
+                </Text>
+              </Pressable>
+              {showPicker && (
+                <DateTimePicker
+                  value={consumptionAt}
+                  mode="datetime"
+                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                  onChange={(_, date) => {
+                    if (Platform.OS === 'android') setShowPicker(false)
+                    if (date) setConsumptionAt(date)
+                  }}
+                />
+              )}
+              {Platform.OS === 'ios' && showPicker && (
+                <Pressable
+                  style={styles.donePicker}
+                  onPress={() => setShowPicker(false)}
+                >
+                  <Text style={styles.donePickerText}>Done</Text>
+                </Pressable>
+              )}
+              <Text style={[styles.label, { marginTop: 12 }]}>
+                Label (optional)
+              </Text>
+              <TextInput
+                style={styles.input}
+                placeholder="e.g. coffee"
+                placeholderTextColor={c.muted}
+                value={formLabel}
+                onChangeText={setFormLabel}
+              />
+              <Pressable style={styles.primaryBtn} onPress={addEntry}>
+                <Text style={styles.primaryBtnText}>Add entry</Text>
+              </Pressable>
+              <View style={styles.presetRow}>
+                {PRESETS.map((p) => (
+                  <Pressable
+                    key={p.label}
+                    onPress={() => setFormMg(String(p.mg))}
+                    style={styles.presetChip}
+                  >
+                    <Text style={styles.presetChipText}>{p.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </ScrollView>
+          </LogModalBodyHost>
+          </View>
+        </>
+      ) : null}
     </SafeAreaView>
   )
 }
@@ -1231,6 +1361,74 @@ function makeStyles(c: ThemeColors) {
   return StyleSheet.create({
     flex: { flex: 1 },
     safe: { flex: 1 },
+    homeRoot: { flex: 1 },
+    homeBottomNav: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      bottom: 0,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingTop: 10,
+      paddingBottom: 2,
+      paddingHorizontal: 14,
+      borderTopWidth: StyleSheet.hairlineWidth,
+    },
+    /** Same width on left/right so the + stays visually centered. */
+    homeBottomNavSide: {
+      width: 46,
+      minHeight: 40,
+      justifyContent: 'center',
+    },
+    homeBottomNavSideEnd: {
+      alignItems: 'flex-end',
+    },
+    homeBottomNavIconBtn: {
+      padding: 6,
+      borderRadius: 10,
+    },
+    logFab: {
+      width: 58,
+      height: 58,
+      borderRadius: 29,
+      alignItems: 'center',
+      justifyContent: 'center',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.2,
+      shadowRadius: 4,
+      elevation: 4,
+    },
+    logModalBackdrop: {
+      ...StyleSheet.absoluteFillObject,
+      zIndex: 199,
+      elevation: 199,
+    },
+    logModalOverlayRoot: {
+      position: 'absolute',
+      zIndex: 200,
+      elevation: 200,
+    },
+    logModalHeaderBar: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      zIndex: 2,
+      elevation: 4,
+    },
+    logModalCloseBtn: {
+      padding: 8,
+      marginRight: -4,
+    },
+    logModalScrollContent: {
+      flexGrow: 1,
+    },
+    logModalTitle: {
+      fontSize: 18,
+      fontWeight: '700',
+    },
     scrollContent: { paddingHorizontal: 16, paddingTop: 8 },
     centered: {
       flex: 1,
@@ -1260,14 +1458,6 @@ function makeStyles(c: ThemeColors) {
       marginTop: 8,
       marginBottom: 16,
       lineHeight: 20,
-    },
-    gearBtn: {
-      padding: 10,
-      marginTop: -2,
-      borderRadius: 12,
-      // borderWidth: 1,
-      // borderColor: c.border,
-      // backgroundColor: c.surface,
     },
     headerRow: {
       flexDirection: 'row',
