@@ -144,3 +144,40 @@ export function scaledCaffeineMg(
   const refOz = catalogFlOz > 0 && Number.isFinite(catalogFlOz) ? catalogFlOz : 1
   return Math.round((servingFlOz / refOz) * catalogMg)
 }
+
+/**
+ * Resolve catalog reference oz/mg and implied serving oz for a catalog-sourced entry.
+ * Uses stored `sourceCatalog*` / `sourceServingOz` when present; otherwise looks up by
+ * `sourceProductName` and infers serving from `caffeine_mg`.
+ */
+export function resolveCatalogScaleForEntry(
+  entry: CaffeineEntry,
+  catalogRows: readonly { name: string; oz: number; mg: number }[]
+): { catalogOz: number; catalogMg: number; servingOz: number } | null {
+  const name = entry.sourceProductName?.trim()
+  if (!name) return null
+
+  let catalogOz = entry.sourceCatalogOz
+  let catalogMg = entry.sourceCatalogMg
+  const hasStored =
+    catalogOz != null &&
+    Number.isFinite(catalogOz) &&
+    catalogOz > 0 &&
+    catalogMg != null &&
+    Number.isFinite(catalogMg) &&
+    catalogMg > 0
+
+  if (!hasStored) {
+    const row = catalogRows.find((r) => r.name === name)
+    if (!row || !(row.oz > 0) || !(row.mg > 0)) return null
+    catalogOz = row.oz
+    catalogMg = row.mg
+  }
+
+  let servingOz = entry.sourceServingOz
+  if (servingOz == null || !Number.isFinite(servingOz) || servingOz < 0) {
+    servingOz = (entry.caffeine_mg * catalogOz!) / catalogMg!
+  }
+
+  return { catalogOz: catalogOz!, catalogMg: catalogMg!, servingOz }
+}

@@ -12,6 +12,14 @@ export interface CaffeineEntry {
    * Omitted for custom logs; label may differ from this after editing.
    */
   sourceProductName?: string
+  /**
+   * Catalog-only: listed reference size (fl oz) and caffeine (mg) for that size — used with
+   * `sourceServingOz` to scale `caffeine_mg`. Legacy entries omit these; resolved from DB by name when possible.
+   */
+  sourceCatalogOz?: number
+  sourceCatalogMg?: number
+  /** Catalog-only: logged serving size (fl oz); updated when editing volume. */
+  sourceServingOz?: number
   /** Custom-log icon when there is no `thumbnailUrl`; defaults to ☕ in the UI when omitted. */
   entryEmoji?: string
 }

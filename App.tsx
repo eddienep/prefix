@@ -50,6 +50,7 @@ import {
   buildSeries,
   dateWhenBelowThreshold,
   effectiveSleepThresholdMg,
+  resolveCatalogScaleForEntry,
   scaledCaffeineMg,
   sleepThresholdMg,
   totalCaffeineAt,
@@ -60,6 +61,7 @@ import { CaffeineSourceList } from './src/CaffeineSourceList'
 import type { CaffeineSourceRow } from './src/caffeineDb'
 import {
   buildCaffeinePickerSections,
+  CAFFEINE_PICKER_ITEMS,
   isCustomRecentPickRow,
   recentPickerRowsFromEntries,
   type CaffeinePickerRow,
@@ -77,6 +79,13 @@ const PREFIX_LOGO_LIGHT_THEME = require('./assets/prefixlogoblack.png')
 /** Behind white logo in header (dark theme only). */
 const PREFIX_LOGO_CHIP_BG_DARK = '#0f172a'
 import { DEFAULT_SETTINGS } from './src/types'
+
+/** Pre-fill serving (fl oz) in edit sheet from stored or inferred value. */
+function formatServingOzForInput(oz: number): string {
+  if (!Number.isFinite(oz) || oz < 0) return ''
+  const t = Math.round(oz * 1000) / 1000
+  return String(t)
+}
 
 dayjs.extend(localizedFormat)
 
@@ -928,7 +937,16 @@ function Screen() {
       caffeine_mg: mg,
       label: fromDb ? fromDb.name : formLabel.trim() || 'Caffeine',
       ...(thumb ? { thumbnailUrl: thumb } : {}),
-      ...(fromDb ? { sourceProductName: fromDb.name } : {}),
+      ...(fromDb
+        ? {
+            sourceProductName: fromDb.name,
+            sourceCatalogOz: fromDb.oz,
+            sourceCatalogMg: fromDb.mg,
+            sourceServingOz: Number(
+              logServingOz.trim().replace(',', '.')
+            ),
+          }
+        : {}),
       ...(!fromDb
         ? {
             entryEmoji:
@@ -973,6 +991,7 @@ function Screen() {
     null
   )
   const [rowSheetMg, setRowSheetMg] = useState('')
+  const [rowSheetServingOz, setRowSheetServingOz] = useState('')
   const [rowSheetLabel, setRowSheetLabel] = useState('')
   const [rowSheetAt, setRowSheetAt] = useState(() => new Date())
   const [rowSheetEmoji, setRowSheetEmoji] = useState(DEFAULT_ENTRY_EMOJI)
@@ -982,6 +1001,7 @@ function Screen() {
     Keyboard.dismiss()
     setEntryRowSheet(null)
     setRowSheetShowPicker(false)
+    setRowSheetServingOz('')
   }, [])
 
   const beginEntryRowCopy = useCallback((entry: CaffeineEntry) => {
@@ -1001,15 +1021,54 @@ function Screen() {
     setRowSheetAt(new Date(entry.timestamp))
     setRowSheetEmoji(entry.entryEmoji ?? DEFAULT_ENTRY_EMOJI)
     setRowSheetShowPicker(false)
+    const scale = resolveCatalogScaleForEntry(entry, CAFFEINE_PICKER_ITEMS)
+    setRowSheetServingOz(
+      scale ? formatServingOzForInput(scale.servingOz) : ''
+    )
     setEntryRowSheet({ mode: 'edit', entry })
   }, [])
+
+  const rowSheetCatalogScale = useMemo(() => {
+    if (!entryRowSheet || entryRowSheet.mode !== 'edit') return null
+    return resolveCatalogScaleForEntry(
+      entryRowSheet.entry,
+      CAFFEINE_PICKER_ITEMS
+    )
+  }, [entryRowSheet])
+
+  const rowSheetCatalogEditMg = useMemo(() => {
+    if (!rowSheetCatalogScale) return null
+    const oz = Number(rowSheetServingOz.trim().replace(',', '.'))
+    return scaledCaffeineMg(
+      oz,
+      rowSheetCatalogScale.catalogOz,
+      rowSheetCatalogScale.catalogMg
+    )
+  }, [rowSheetCatalogScale, rowSheetServingOz])
 
   const rowSheetCanSave = useMemo(() => {
     if (!entryRowSheet) return false
     if (entryRowSheet.mode === 'copy') return true
+    if (entryRowSheet.mode === 'edit' && rowSheetCatalogScale) {
+      const oz = Number(rowSheetServingOz.trim().replace(',', '.'))
+      const mg = rowSheetCatalogEditMg
+      return (
+        Number.isFinite(oz) &&
+        oz > 0 &&
+        mg != null &&
+        Number.isFinite(mg) &&
+        mg > 0
+      )
+    }
     const mg = Number(rowSheetMg)
     return Number.isFinite(mg) && mg > 0
-  }, [entryRowSheet, rowSheetMg])
+  }, [
+    entryRowSheet,
+    rowSheetMg,
+    rowSheetCatalogScale,
+    rowSheetServingOz,
+    rowSheetCatalogEditMg,
+  ])
 
   const saveEntryRowSheet = useCallback(() => {
     if (!entryRowSheet) return
@@ -1025,13 +1084,41 @@ function Screen() {
       closeEntryRowSheet()
       return
     }
+    const ent = entryRowSheet.entry
+    const labelForSave = ent.sourceProductName
+      ? ent.label.trim() || 'Caffeine'
+      : rowSheetLabel.trim() || 'Caffeine'
+    const scale = resolveCatalogScaleForEntry(ent, CAFFEINE_PICKER_ITEMS)
+
+    if (scale) {
+      const oz = Number(rowSheetServingOz.trim().replace(',', '.'))
+      const mg = scaledCaffeineMg(oz, scale.catalogOz, scale.catalogMg)
+      if (!Number.isFinite(mg) || mg <= 0) return
+      setEntries((prev) =>
+        prev.map((x) =>
+          x.id === ent.id
+            ? {
+                ...x,
+                caffeine_mg: mg,
+                label: labelForSave,
+                timestamp: rowSheetAt.toISOString(),
+                sourceCatalogOz: scale.catalogOz,
+                sourceCatalogMg: scale.catalogMg,
+                sourceServingOz: oz,
+              }
+            : x
+        )
+      )
+      closeEntryRowSheet()
+      return
+    }
+
     const mg = Number(rowSheetMg)
     if (!Number.isFinite(mg) || mg <= 0) return
-    const labelTrim = rowSheetLabel.trim() || 'Caffeine'
-    const isCatalog = Boolean(entryRowSheet.entry.sourceProductName)
+    const isCatalog = Boolean(ent.sourceProductName)
     const base = {
       caffeine_mg: mg,
-      label: labelTrim,
+      label: labelForSave,
       timestamp: rowSheetAt.toISOString(),
     }
     const emojiPatch = !isCatalog
@@ -1040,13 +1127,14 @@ function Screen() {
 
     setEntries((prev) =>
       prev.map((x) =>
-        x.id === entryRowSheet.entry.id ? { ...x, ...base, ...emojiPatch } : x
+        x.id === ent.id ? { ...x, ...base, ...emojiPatch } : x
       )
     )
     closeEntryRowSheet()
   }, [
     entryRowSheet,
     rowSheetMg,
+    rowSheetServingOz,
     rowSheetLabel,
     rowSheetAt,
     rowSheetEmoji,
@@ -2389,34 +2477,205 @@ function Screen() {
                           </RNScrollView>
                         </>
                       ) : null}
-                      <Text
-                        style={[
-                          styles.label,
-                          {
-                            marginTop: entryRowSheet.entry.sourceProductName
-                              ? 0
-                              : 12,
-                          },
-                        ]}
-                      >
-                        Amount (mg)
-                      </Text>
-                      <TextInput
-                        style={styles.input}
-                        keyboardType="number-pad"
-                        value={rowSheetMg}
-                        onChangeText={setRowSheetMg}
-                      />
-                      <Text style={[styles.label, { marginTop: 12 }]}>
-                        Label (optional)
-                      </Text>
-                      <TextInput
-                        style={styles.input}
-                        placeholder="e.g. coffee"
-                        placeholderTextColor={c.muted}
-                        value={rowSheetLabel}
-                        onChangeText={setRowSheetLabel}
-                      />
+                      {rowSheetCatalogScale ? (
+                        <>
+                          <Text
+                            style={[
+                              styles.label,
+                              {
+                                marginTop: entryRowSheet.entry.sourceProductName
+                                  ? 0
+                                  : 12,
+                              },
+                            ]}
+                          >
+                            Serving (fl oz)
+                          </Text>
+                          <TextInput
+                            style={styles.input}
+                            keyboardType="decimal-pad"
+                            value={rowSheetServingOz}
+                            onChangeText={setRowSheetServingOz}
+                          />
+                          <Text
+                            style={[
+                              styles.logEntryListHint,
+                              { color: c.muted },
+                            ]}
+                          >
+                            Listed: {rowSheetCatalogScale.catalogMg} mg per{' '}
+                            {rowSheetCatalogScale.catalogOz} fl oz
+                          </Text>
+                          <View
+                            style={[
+                              styles.entryRowCopyReadonlyLabelRow,
+                              { marginTop: 12 },
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.label,
+                                styles.entryRowCopyReadonlyLabelText,
+                              ]}
+                            >
+                              Caffeine (mg)
+                            </Text>
+                            <Ionicons
+                              name="lock-closed-outline"
+                              size={14}
+                              color={c.muted}
+                              accessibilityElementsHidden
+                              importantForAccessibility="no"
+                            />
+                          </View>
+                          <View
+                            style={[
+                              styles.entryRowCopyReadonlyField,
+                              { borderColor: c.border },
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.entryRowCopyReadonlyValueStrong,
+                                { color: c.text },
+                              ]}
+                            >
+                              {rowSheetCatalogEditMg != null &&
+                              Number.isFinite(rowSheetCatalogEditMg)
+                                ? String(rowSheetCatalogEditMg)
+                                : '—'}
+                            </Text>
+                          </View>
+                          <View
+                            style={[
+                              styles.entryRowCopyReadonlyLabelRow,
+                              { marginTop: 12 },
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.label,
+                                styles.entryRowCopyReadonlyLabelText,
+                              ]}
+                            >
+                              Label
+                            </Text>
+                            <Ionicons
+                              name="lock-closed-outline"
+                              size={14}
+                              color={c.muted}
+                              accessibilityElementsHidden
+                              importantForAccessibility="no"
+                            />
+                          </View>
+                          <View
+                            style={[
+                              styles.entryRowCopyReadonlyField,
+                              { borderColor: c.border },
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.entryRowCopyReadonlyValue,
+                                { color: c.text },
+                              ]}
+                            >
+                              {entryRowSheet.entry.label}
+                            </Text>
+                          </View>
+                        </>
+                      ) : (
+                        <>
+                          {entryRowSheet.entry.sourceProductName ? (
+                            <Text
+                              style={[
+                                styles.logEntryListHint,
+                                {
+                                  color: c.muted,
+                                  marginTop: 0,
+                                  marginBottom: 8,
+                                },
+                              ]}
+                            >
+                              This product is not in the current list. Edit
+                              caffeine (mg) directly.
+                            </Text>
+                          ) : null}
+                          <Text
+                            style={[
+                              styles.label,
+                              {
+                                marginTop: entryRowSheet.entry.sourceProductName
+                                  ? 0
+                                  : 12,
+                              },
+                            ]}
+                          >
+                            Amount (mg)
+                          </Text>
+                          <TextInput
+                            style={styles.input}
+                            keyboardType="number-pad"
+                            value={rowSheetMg}
+                            onChangeText={setRowSheetMg}
+                          />
+                          {entryRowSheet.entry.sourceProductName ? (
+                            <>
+                              <View
+                                style={[
+                                  styles.entryRowCopyReadonlyLabelRow,
+                                  { marginTop: 12 },
+                                ]}
+                              >
+                                <Text
+                                  style={[
+                                    styles.label,
+                                    styles.entryRowCopyReadonlyLabelText,
+                                  ]}
+                                >
+                                  Label
+                                </Text>
+                                <Ionicons
+                                  name="lock-closed-outline"
+                                  size={14}
+                                  color={c.muted}
+                                  accessibilityElementsHidden
+                                  importantForAccessibility="no"
+                                />
+                              </View>
+                              <View
+                                style={[
+                                  styles.entryRowCopyReadonlyField,
+                                  { borderColor: c.border },
+                                ]}
+                              >
+                                <Text
+                                  style={[
+                                    styles.entryRowCopyReadonlyValue,
+                                    { color: c.text },
+                                  ]}
+                                >
+                                  {entryRowSheet.entry.label}
+                                </Text>
+                              </View>
+                            </>
+                          ) : null}
+                        </>
+                      )}
+                      {!entryRowSheet.entry.sourceProductName ? (
+                        <>
+                          <Text style={[styles.label, { marginTop: 12 }]}>
+                            Label (optional)
+                          </Text>
+                          <TextInput
+                            style={styles.input}
+                            placeholder="e.g. coffee"
+                            placeholderTextColor={c.muted}
+                            value={rowSheetLabel}
+                            onChangeText={setRowSheetLabel}
+                          />
+                        </>
+                      ) : null}
                     </>
                   ) : (
                     <>
