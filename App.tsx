@@ -1,3 +1,4 @@
+import Feather from '@expo/vector-icons/Feather'
 import { Ionicons } from '@expo/vector-icons'
 import DateTimePicker from '@react-native-community/datetimepicker'
 import { StatusBar } from 'expo-status-bar'
@@ -409,6 +410,7 @@ function Screen() {
   const [draftTheme, setDraftTheme] = useState<ThemePreference>('system')
 
   const openSettings = useCallback(() => {
+    closeOpenEntrySwipeRef.current?.()
     setDraftSettings({ ...settings })
     setDraftTheme(themePreference)
     // Home unmounts; the chart ScrollView resets to 0 but these refs kept old values,
@@ -542,6 +544,8 @@ function Screen() {
   const pendingTodayScrollRef = useRef(false)
   const lastExtendPastRef = useRef(0)
   const lastExtendFutureRef = useRef(0)
+  const openEntrySwipeIdRef = useRef<string | null>(null)
+  const closeOpenEntrySwipeRef = useRef<(() => void) | null>(null)
 
   const fullSeries = useMemo(() => {
     const start = dayjs(now).subtract(pastDays, 'day').startOf('hour').toDate()
@@ -712,6 +716,7 @@ function Screen() {
   )
 
   const jumpToToday = useCallback(() => {
+    closeOpenEntrySwipeRef.current?.()
     pendingTodayScrollRef.current = true
     setNow(new Date())
   }, [])
@@ -883,6 +888,7 @@ function Screen() {
   )
 
   const scrollHomeToTop = useCallback(() => {
+    closeOpenEntrySwipeRef.current?.()
     homeScrollRef.current?.scrollTo({ y: 0, animated: true })
   }, [])
 
@@ -947,8 +953,117 @@ function Screen() {
   ])
 
   const removeEntry = useCallback((id: string) => {
+    if (openEntrySwipeIdRef.current === id) {
+      openEntrySwipeIdRef.current = null
+    }
     setEntries((prev) => prev.filter((e) => e.id !== id))
   }, [])
+
+  type EntryRowSheetState =
+    | { mode: 'edit'; entry: CaffeineEntry }
+    | { mode: 'copy'; entry: CaffeineEntry }
+
+  const entrySwipeRefs = useRef(
+    new Map<string, InstanceType<typeof Swipeable> | null>()
+  )
+  const [entryRowSheet, setEntryRowSheet] = useState<EntryRowSheetState | null>(
+    null
+  )
+  const [rowSheetMg, setRowSheetMg] = useState('')
+  const [rowSheetLabel, setRowSheetLabel] = useState('')
+  const [rowSheetAt, setRowSheetAt] = useState(() => new Date())
+  const [rowSheetEmoji, setRowSheetEmoji] = useState(DEFAULT_ENTRY_EMOJI)
+  const [rowSheetShowPicker, setRowSheetShowPicker] = useState(false)
+
+  const closeEntryRowSheet = useCallback(() => {
+    Keyboard.dismiss()
+    setEntryRowSheet(null)
+    setRowSheetShowPicker(false)
+  }, [])
+
+  const beginEntryRowCopy = useCallback((entry: CaffeineEntry) => {
+    entrySwipeRefs.current.get(entry.id)?.close()
+    setRowSheetMg(String(entry.caffeine_mg))
+    setRowSheetLabel(entry.label)
+    setRowSheetAt(new Date(entry.timestamp))
+    setRowSheetEmoji(entry.entryEmoji ?? DEFAULT_ENTRY_EMOJI)
+    setRowSheetShowPicker(false)
+    setEntryRowSheet({ mode: 'copy', entry })
+  }, [])
+
+  const beginEntryRowEdit = useCallback((entry: CaffeineEntry) => {
+    entrySwipeRefs.current.get(entry.id)?.close()
+    setRowSheetMg(String(entry.caffeine_mg))
+    setRowSheetLabel(entry.label)
+    setRowSheetAt(new Date(entry.timestamp))
+    setRowSheetEmoji(entry.entryEmoji ?? DEFAULT_ENTRY_EMOJI)
+    setRowSheetShowPicker(false)
+    setEntryRowSheet({ mode: 'edit', entry })
+  }, [])
+
+  const rowSheetCanSave = useMemo(() => {
+    if (!entryRowSheet) return false
+    const mg = Number(rowSheetMg)
+    return Number.isFinite(mg) && mg > 0
+  }, [entryRowSheet, rowSheetMg])
+
+  const saveEntryRowSheet = useCallback(() => {
+    if (!entryRowSheet) return
+    const mg = Number(rowSheetMg)
+    if (!Number.isFinite(mg) || mg <= 0) return
+    const labelTrim = rowSheetLabel.trim() || 'Caffeine'
+    const isCatalog = Boolean(entryRowSheet.entry.sourceProductName)
+    const base = {
+      caffeine_mg: mg,
+      label: labelTrim,
+      timestamp: rowSheetAt.toISOString(),
+    }
+    const emojiPatch = !isCatalog
+      ? { entryEmoji: rowSheetEmoji.trim() || DEFAULT_ENTRY_EMOJI }
+      : {}
+
+    if (entryRowSheet.mode === 'edit') {
+      setEntries((prev) =>
+        prev.map((x) =>
+          x.id === entryRowSheet.entry.id ? { ...x, ...base, ...emojiPatch } : x
+        )
+      )
+    } else {
+      setEntries((prev) => [
+        ...prev,
+        {
+          ...entryRowSheet.entry,
+          ...base,
+          ...emojiPatch,
+          id: newId(),
+        },
+      ])
+    }
+    closeEntryRowSheet()
+  }, [
+    entryRowSheet,
+    rowSheetMg,
+    rowSheetLabel,
+    rowSheetAt,
+    rowSheetEmoji,
+    closeEntryRowSheet,
+  ])
+
+  useEffect(() => {
+    if (!entryRowSheet) return
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      closeEntryRowSheet()
+      return true
+    })
+    return () => sub.remove()
+  }, [entryRowSheet, closeEntryRowSheet])
+
+  const closeOpenEntrySwipe = useCallback(() => {
+    const id = openEntrySwipeIdRef.current
+    if (id == null) return
+    entrySwipeRefs.current.get(id)?.close()
+  }, [])
+  closeOpenEntrySwipeRef.current = closeOpenEntrySwipe
 
   const onPickCaffeineSource = useCallback((row: CaffeinePickerRow) => {
     Keyboard.dismiss()
@@ -1252,7 +1367,11 @@ function Screen() {
           style={styles.flex}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <View style={styles.homeHeaderStrip}>
+          <Pressable
+            style={styles.homeHeaderStrip}
+            onPress={closeOpenEntrySwipe}
+            accessibilityRole="none"
+          >
             <View style={styles.headerRow}>
               <View
                 style={[
@@ -1284,7 +1403,7 @@ function Screen() {
               </Text> */}
               </View>
             </View>
-          </View>
+          </Pressable>
           <ScrollView
             ref={homeScrollRef}
             contentContainerStyle={[
@@ -1297,12 +1416,17 @@ function Screen() {
             automaticallyAdjustContentInsets={false}
             contentInsetAdjustmentBehavior="never"
             onScroll={onHomeScroll}
+            onScrollBeginDrag={closeOpenEntrySwipe}
             scrollEventThrottle={16}
             stickyHeaderIndices={
               consumptionDayGroups.length > 0 ? [1] : undefined
             }
           >
-          <View style={styles.activeCaffeineSection}>
+          <Pressable
+            style={styles.activeCaffeineSection}
+            onPress={closeOpenEntrySwipe}
+            accessibilityRole="none"
+          >
             <Text style={styles.cardTitle}>Summary</Text>
             <View style={styles.statsRowTop}>
               <View style={styles.statCol}>
@@ -1481,17 +1605,23 @@ function Screen() {
                 )}
               </View>
             </View>
-          </View>
+          </Pressable>
 
           {consumptionDayGroups.length > 0 ? (
-            <View
+            <Pressable
               style={[styles.consumptionStickyHeader, { backgroundColor: c.bg }]}
+              onPress={closeOpenEntrySwipe}
+              accessibilityRole="none"
             >
               <Text style={styles.cardTitle}>Caffeine Consumption</Text>
-            </View>
+            </Pressable>
           ) : null}
           {consumptionDayGroups.length > 0 ? (
-            <View style={styles.consumptionSection}>
+            <Pressable
+              style={styles.consumptionSection}
+              onPress={closeOpenEntrySwipe}
+              accessibilityRole="none"
+            >
               {consumptionDayGroups.map((group, gi) => (
                 <View
                   key={group.dayKey}
@@ -1507,28 +1637,84 @@ function Screen() {
                     return (
                       <Swipeable
                         key={e.id}
+                        ref={(r) => {
+                          if (r) entrySwipeRefs.current.set(e.id, r)
+                          else entrySwipeRefs.current.delete(e.id)
+                        }}
                         friction={2}
                         overshootRight={false}
+                        /** Close other rows as soon as this row commits to opening (not after its spring finishes). */
+                        onSwipeableWillOpen={(direction) => {
+                          if (direction !== 'right') return
+                          const prev = openEntrySwipeIdRef.current
+                          openEntrySwipeIdRef.current = e.id
+                          if (prev && prev !== e.id) {
+                            entrySwipeRefs.current.get(prev)?.close()
+                          }
+                        }}
+                        animationOptions={{
+                          speed: 22,
+                          bounciness: 0,
+                        }}
+                        onSwipeableClose={(direction) => {
+                          if (direction !== 'right') return
+                          if (openEntrySwipeIdRef.current === e.id) {
+                            openEntrySwipeIdRef.current = null
+                          }
+                        }}
                         renderRightActions={() => (
-                          <View style={styles.entrySwipeDeleteOuter}>
-                            <Pressable
-                              onPress={() => removeEntry(e.id)}
-                              style={({ pressed }) => [
-                                styles.entrySwipeDelete,
-                                {
-                                  backgroundColor: c.danger,
-                                  opacity: pressed ? 0.88 : 1,
-                                },
-                              ]}
-                              accessibilityLabel="Delete entry"
-                              accessibilityRole="button"
-                            >
-                              <Ionicons
-                                name="trash-outline"
-                                size={20}
-                                color="#fff"
-                              />
-                            </Pressable>
+                          <View style={styles.entrySwipeActionsOuter}>
+                            <View style={styles.entrySwipeActionsRow}>
+                              <Pressable
+                                onPress={() => beginEntryRowCopy(e)}
+                                style={({ pressed }) => [
+                                  styles.entrySwipeActionBtn,
+                                  styles.entrySwipeSolid,
+                                  {
+                                    backgroundColor: c.chart,
+                                    opacity: pressed ? 0.88 : 1,
+                                  },
+                                ]}
+                                accessibilityLabel="Copy to another date"
+                                accessibilityRole="button"
+                              >
+                                <Feather name="copy" size={20} color="#fff" />
+                              </Pressable>
+                              <Pressable
+                                onPress={() => beginEntryRowEdit(e)}
+                                style={({ pressed }) => [
+                                  styles.entrySwipeActionBtn,
+                                  styles.entrySwipeSolid,
+                                  {
+                                    backgroundColor: c.accent,
+                                    opacity: pressed ? 0.88 : 1,
+                                  },
+                                ]}
+                                accessibilityLabel="Edit entry"
+                                accessibilityRole="button"
+                              >
+                                <Feather name="edit" size={20} color="#fff" />
+                              </Pressable>
+                              <Pressable
+                                onPress={() => removeEntry(e.id)}
+                                style={({ pressed }) => [
+                                  styles.entrySwipeActionBtn,
+                                  styles.entrySwipeSolid,
+                                  {
+                                    backgroundColor: c.danger,
+                                    opacity: pressed ? 0.88 : 1,
+                                  },
+                                ]}
+                                accessibilityLabel="Delete entry"
+                                accessibilityRole="button"
+                              >
+                                <Ionicons
+                                  name="trash-outline"
+                                  size={20}
+                                  color="#fff"
+                                />
+                              </Pressable>
+                            </View>
                           </View>
                         )}
                       >
@@ -1559,13 +1745,18 @@ function Screen() {
                   })}
                 </View>
               ))}
-            </View>
+            </Pressable>
           ) : null}
 
-          <Text style={styles.disclaimer}>
-            Fixed half-life and a rough mg/kg cutoff for education only. Not
-            medical advice.
-          </Text>
+          <Pressable
+            onPress={closeOpenEntrySwipe}
+            accessibilityRole="none"
+          >
+            <Text style={styles.disclaimer}>
+              Fixed half-life and a rough mg/kg cutoff for education only. Not
+              medical advice.
+            </Text>
+          </Pressable>
         </ScrollView>
         </KeyboardAvoidingView>
 
@@ -1580,7 +1771,10 @@ function Screen() {
         >
           <View style={styles.homeBottomNavSide} />
           <Pressable
-            onPress={() => setLogModalVisible(true)}
+            onPress={() => {
+              closeOpenEntrySwipeRef.current?.()
+              setLogModalVisible(true)
+            }}
             style={({ pressed }) => [
               styles.logFab,
               { backgroundColor: c.accent, opacity: pressed ? 0.9 : 1 },
@@ -2041,6 +2235,219 @@ function Screen() {
           </View>
         </>
       ) : null}
+
+      {entryRowSheet ? (
+        <>
+          <Pressable
+            style={styles.entryRowSheetBackdrop}
+            onPress={closeEntryRowSheet}
+            accessibilityLabel="Dismiss"
+            accessibilityRole="button"
+          />
+          <KeyboardAvoidingView
+            style={styles.entryRowSheetOuter}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            pointerEvents="box-none"
+          >
+            <View style={styles.logEntryDetailCenter} pointerEvents="box-none">
+              <View
+                style={[
+                  styles.logEntryDetailCard,
+                  {
+                    borderColor: c.border,
+                    backgroundColor: c.surface,
+                  },
+                ]}
+              >
+                <View style={styles.logEntryDetailHeader}>
+                  <Pressable
+                    onPress={closeEntryRowSheet}
+                    hitSlop={12}
+                    style={styles.logEntryDetailBackBtn}
+                    accessibilityLabel="Back"
+                    accessibilityRole="button"
+                  >
+                    <Ionicons
+                      name="chevron-back"
+                      size={26}
+                      color={c.accent}
+                    />
+                  </Pressable>
+                  <Text
+                    style={[
+                      styles.logEntryDetailTitle,
+                      { color: c.textStrong },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {entryRowSheet.mode === 'edit'
+                      ? 'Edit entry'
+                      : 'Copy to date'}
+                  </Text>
+                </View>
+                {entryRowSheet.entry.sourceProductName ? (
+                  <View
+                    style={[
+                      styles.logEntryDetailPreview,
+                      { borderBottomColor: c.border },
+                    ]}
+                  >
+                    <EntryThumbnail
+                      thumbnailUrl={entryRowSheet.entry.thumbnailUrl}
+                      entryEmoji={entryRowSheet.entry.entryEmoji}
+                      surfaceColor={c.surface}
+                      borderColor={c.border}
+                    />
+                    <Text
+                      style={[
+                        styles.logEntryDetailPreviewName,
+                        { color: c.textStrong },
+                      ]}
+                      numberOfLines={3}
+                    >
+                      {entryRowSheet.entry.sourceProductName}
+                    </Text>
+                  </View>
+                ) : null}
+                <RNScrollView
+                  keyboardShouldPersistTaps="handled"
+                  showsVerticalScrollIndicator={false}
+                  automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+                  keyboardDismissMode={
+                    Platform.OS === 'ios' ? 'interactive' : 'on-drag'
+                  }
+                  bounces={Platform.OS !== 'ios'}
+                  contentContainerStyle={styles.logEntryDetailScrollContent}
+                >
+                  {!entryRowSheet.entry.sourceProductName ? (
+                    <>
+                      <Text style={styles.label}>Icon</Text>
+                      <RNScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        keyboardShouldPersistTaps="handled"
+                        contentContainerStyle={styles.logEntryEmojiScrollContent}
+                      >
+                        {CAFFEINE_ENTRY_EMOJI_OPTIONS.map((opt) => {
+                          const selected = rowSheetEmoji === opt.emoji
+                          return (
+                            <Pressable
+                              key={opt.emoji + opt.label}
+                              onPress={() => setRowSheetEmoji(opt.emoji)}
+                              style={({ pressed }) => [
+                                styles.logEntryEmojiChip,
+                                {
+                                  borderColor: selected
+                                    ? c.accent
+                                    : c.border,
+                                  borderWidth: selected ? 2 : 1,
+                                  backgroundColor: selected
+                                    ? schemeTint(
+                                        c.accent,
+                                        c.surface === '#ffffff' ? 0.12 : 0.2
+                                      ) ?? c.inputBg
+                                    : c.inputBg,
+                                  opacity: pressed ? 0.88 : 1,
+                                },
+                              ]}
+                              accessibilityLabel={opt.label}
+                              accessibilityRole="button"
+                              accessibilityState={{ selected }}
+                            >
+                              <Text style={styles.logEntryEmojiChipGlyph}>
+                                {opt.emoji}
+                              </Text>
+                            </Pressable>
+                          )
+                        })}
+                      </RNScrollView>
+                    </>
+                  ) : null}
+                  <Text
+                    style={[
+                      styles.label,
+                      {
+                        marginTop:
+                          entryRowSheet.entry.sourceProductName ? 0 : 12,
+                      },
+                    ]}
+                  >
+                    Amount (mg)
+                  </Text>
+                  <TextInput
+                    style={styles.input}
+                    keyboardType="number-pad"
+                    value={rowSheetMg}
+                    onChangeText={setRowSheetMg}
+                  />
+                  <Text style={[styles.label, { marginTop: 12 }]}>
+                    Label (optional)
+                  </Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="e.g. coffee"
+                    placeholderTextColor={c.muted}
+                    value={rowSheetLabel}
+                    onChangeText={setRowSheetLabel}
+                  />
+                  <Text style={[styles.label, { marginTop: 12 }]}>Time</Text>
+                  <Pressable
+                    onPress={() => setRowSheetShowPicker(true)}
+                    style={styles.dateBtn}
+                  >
+                    <Text style={styles.dateBtnText}>
+                      {dayjs(rowSheetAt).format('lll')}
+                    </Text>
+                  </Pressable>
+                  {rowSheetShowPicker ? (
+                    <DateTimePicker
+                      value={rowSheetAt}
+                      mode="datetime"
+                      display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                      {...(Platform.OS === 'ios'
+                        ? {
+                            themeVariant:
+                              scheme === 'dark'
+                                ? ('dark' as const)
+                                : ('light' as const),
+                            textColor: c.textStrong,
+                          }
+                        : {})}
+                      onChange={(_, date) => {
+                        if (Platform.OS === 'android')
+                          setRowSheetShowPicker(false)
+                        if (date) setRowSheetAt(date)
+                      }}
+                    />
+                  ) : null}
+                  {Platform.OS === 'ios' && rowSheetShowPicker ? (
+                    <Pressable
+                      style={styles.donePicker}
+                      onPress={() => setRowSheetShowPicker(false)}
+                    >
+                      <Text style={styles.donePickerText}>Done</Text>
+                    </Pressable>
+                  ) : null}
+                  <Pressable
+                    style={[
+                      styles.primaryBtn,
+                      !rowSheetCanSave && styles.primaryBtnDisabled,
+                    ]}
+                    disabled={!rowSheetCanSave}
+                    onPress={saveEntryRowSheet}
+                  >
+                    <Text style={styles.primaryBtnText}>
+                      {entryRowSheet.mode === 'edit'
+                        ? 'Save changes'
+                        : 'Add copy'}
+                    </Text>
+                  </Pressable>
+                </RNScrollView>
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+        </>
+      ) : null}
     </SafeAreaView>
   )
 }
@@ -2431,19 +2838,41 @@ function makeStyles(c: ThemeColors) {
     },
     entryTitle: { fontSize: 15, fontWeight: '600', color: c.textStrong },
     entryMeta: { fontSize: 12, color: c.muted, marginTop: 2 },
-    /** Fills row height from Swipeable’s action strip so the button can center vertically. */
-    entrySwipeDeleteOuter: {
+    /** Fills row height from Swipeable’s action strip so actions center vertically. */
+    entrySwipeActionsOuter: {
       alignSelf: 'stretch',
       justifyContent: 'center',
       alignItems: 'center',
       paddingLeft: 8,
     },
-    entrySwipeDelete: {
+    entrySwipeActionsRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    entrySwipeActionBtn: {
       width: ENTRY_THUMB_SIZE,
       height: ENTRY_THUMB_SIZE,
       justifyContent: 'center',
       alignItems: 'center',
       borderRadius: 10,
+      borderWidth: 1,
+    },
+    /** Solid swipe actions (no hairline border), same as delete. */
+    entrySwipeSolid: {
+      borderWidth: 0,
+    },
+    entryRowSheetBackdrop: {
+      ...StyleSheet.absoluteFillObject,
+      zIndex: 215,
+      elevation: 215,
+      backgroundColor: 'rgba(0,0,0,0.45)',
+    },
+    entryRowSheetOuter: {
+      ...StyleSheet.absoluteFillObject,
+      zIndex: 216,
+      elevation: 216,
+      justifyContent: 'center',
     },
     chartCaption: { fontSize: 12, color: c.muted, marginBottom: 8 },
     chartBannerRow: {
