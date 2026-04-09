@@ -2178,7 +2178,21 @@ function Screen() {
                     >
                       {logEntrySourcePreview ? (
                         <>
-                          <Text style={styles.label}>Serving (fl oz)</Text>
+                          {/* <Text
+                            style={[styles.entryRowCopyIntro, { color: c.muted }]}
+                          >
+                            Edit serving size (fl oz) below. Caffeine (mg) is
+                            calculated from that volume and the product listing
+                            — it is not typed directly.
+                          </Text> */}
+                          <Text
+                            style={[
+                              styles.label,
+                              { marginTop: 0 },
+                            ]}
+                          >
+                            Serving (fl oz)
+                          </Text>
                           <TextInput
                             style={styles.input}
                             keyboardType="decimal-pad"
@@ -2194,19 +2208,38 @@ function Screen() {
                             Listed: {logEntrySourcePreview.mg} mg per{' '}
                             {logEntrySourcePreview.oz} fl oz
                           </Text>
-                          <Text style={[styles.label, { marginTop: 12 }]}>
-                            Caffeine (mg)
-                          </Text>
                           <View
                             style={[
-                              styles.logEntryReadonlyField,
+                              styles.entryRowCopyReadonlyLabelRow,
+                              { marginTop: 12 },
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.label,
+                                styles.entryRowCopyReadonlyLabelText,
+                              ]}
+                            >
+                              Caffeine (mg)
+                            </Text>
+                            <Ionicons
+                              name="lock-closed-outline"
+                              size={14}
+                              color={c.muted}
+                              accessibilityElementsHidden
+                              importantForAccessibility="no"
+                            />
+                          </View>
+                          <View
+                            style={[
+                              styles.entryRowCopyReadonlyField,
                               { borderColor: c.border },
                             ]}
                           >
                             <Text
                               style={[
-                                styles.logEntryReadonlyAmountText,
-                                { color: c.textStrong },
+                                styles.entryRowCopyReadonlyValueStrong,
+                                { color: c.text },
                               ]}
                             >
                               {logDbComputedMg != null
@@ -2393,7 +2426,8 @@ function Screen() {
                       : 'Copy to date'}
                   </Text>
                 </View>
-                {entryRowSheet.entry.sourceProductName ? (
+                {entryRowSheet.mode === 'copy' ||
+                entryRowSheet.entry.sourceProductName?.trim() ? (
                   <View
                     style={[
                       styles.logEntryDetailPreview,
@@ -2413,7 +2447,8 @@ function Screen() {
                       ]}
                       numberOfLines={3}
                     >
-                      {entryRowSheet.entry.sourceProductName}
+                      {entryRowSheet.entry.sourceProductName?.trim() ||
+                        entryRowSheet.entry.label}
                     </Text>
                   </View>
                 ) : null}
@@ -2679,59 +2714,10 @@ function Screen() {
                     </>
                   ) : (
                     <>
-                      <Text
-                        style={[styles.entryRowCopyIntro, { color: c.muted }]}
-                      >
-                        Amount, label, and icon match the original entry. Only
-                        time can be changed below.
-                      </Text>
-                      {!entryRowSheet.entry.sourceProductName ? (
-                        <>
-                          <View
-                            style={[
-                              styles.entryRowCopyReadonlyLabelRow,
-                              {
-                                marginTop: 4,
-                              },
-                            ]}
-                          >
-                            <Text
-                              style={[
-                                styles.label,
-                                styles.entryRowCopyReadonlyLabelText,
-                              ]}
-                            >
-                              Icon
-                            </Text>
-                            <Ionicons
-                              name="lock-closed-outline"
-                              size={14}
-                              color={c.muted}
-                              accessibilityElementsHidden
-                              importantForAccessibility="no"
-                            />
-                          </View>
-                          <View
-                            style={[
-                              styles.entryRowCopyReadonlyField,
-                              { borderColor: c.border },
-                            ]}
-                          >
-                            <Text style={styles.logEntryEmojiChipGlyph}>
-                              {entryRowSheet.entry.entryEmoji ??
-                                DEFAULT_ENTRY_EMOJI}
-                            </Text>
-                          </View>
-                        </>
-                      ) : null}
                       <View
                         style={[
                           styles.entryRowCopyReadonlyLabelRow,
-                          {
-                            marginTop: entryRowSheet.entry.sourceProductName
-                              ? 4
-                              : 12,
-                          },
+                          { marginTop: 0 },
                         ]}
                       >
                         <Text
