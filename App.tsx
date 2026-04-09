@@ -545,6 +545,8 @@ function Screen() {
   const lastExtendPastRef = useRef(0)
   const lastExtendFutureRef = useRef(0)
   const openEntrySwipeIdRef = useRef<string | null>(null)
+  /** Mirrors ref so list rows re-render when another row is swiped open (tap-other-row dismiss). */
+  const [openSwipeEntryId, setOpenSwipeEntryId] = useState<string | null>(null)
   const closeOpenEntrySwipeRef = useRef<(() => void) | null>(null)
 
   const fullSeries = useMemo(() => {
@@ -955,6 +957,7 @@ function Screen() {
   const removeEntry = useCallback((id: string) => {
     if (openEntrySwipeIdRef.current === id) {
       openEntrySwipeIdRef.current = null
+      setOpenSwipeEntryId(null)
     }
     setEntries((prev) => prev.filter((e) => e.id !== id))
   }, [])
@@ -1617,23 +1620,47 @@ function Screen() {
             </Pressable>
           ) : null}
           {consumptionDayGroups.length > 0 ? (
-            <Pressable
-              style={styles.consumptionSection}
-              onPress={closeOpenEntrySwipe}
-              accessibilityRole="none"
-            >
+            <View style={styles.consumptionSection}>
               {consumptionDayGroups.map((group, gi) => (
                 <View
                   key={group.dayKey}
                   style={gi > 0 ? styles.consumptionDayBlock : undefined}
                 >
-                  <Text
-                    style={[styles.consumptionDayHeading, { color: c.muted }]}
+                  <Pressable
+                    onPress={closeOpenEntrySwipe}
+                    accessibilityRole="none"
                   >
-                    {group.label}
-                  </Text>
+                    <Text
+                      style={[styles.consumptionDayHeading, { color: c.muted }]}
+                    >
+                      {group.label}
+                    </Text>
+                  </Pressable>
                   {group.entries.map((e, ei) => {
                     const isLastInGroup = ei === group.entries.length - 1
+                    const entryRowStyle = [
+                      styles.entryRow,
+                      { backgroundColor: c.bg },
+                      isLastInGroup && styles.entryRowGroupLast,
+                    ]
+                    const entryRowBody = (
+                      <>
+                        <EntryThumbnail
+                          thumbnailUrl={e.thumbnailUrl}
+                          entryEmoji={e.entryEmoji}
+                          surfaceColor={c.surface}
+                          borderColor={c.border}
+                        />
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.entryTitle}>
+                            {e.caffeine_mg} mg · {e.label}
+                          </Text>
+                          <Text style={styles.entryMeta}>
+                            {dayjs(e.timestamp).format('lll')}
+                          </Text>
+                        </View>
+                      </>
+                    )
                     return (
                       <Swipeable
                         key={e.id}
@@ -1648,6 +1675,7 @@ function Screen() {
                           if (direction !== 'right') return
                           const prev = openEntrySwipeIdRef.current
                           openEntrySwipeIdRef.current = e.id
+                          setOpenSwipeEntryId(e.id)
                           if (prev && prev !== e.id) {
                             entrySwipeRefs.current.get(prev)?.close()
                           }
@@ -1660,6 +1688,7 @@ function Screen() {
                           if (direction !== 'right') return
                           if (openEntrySwipeIdRef.current === e.id) {
                             openEntrySwipeIdRef.current = null
+                            setOpenSwipeEntryId(null)
                           }
                         }}
                         renderRightActions={() => (
@@ -1718,34 +1747,24 @@ function Screen() {
                           </View>
                         )}
                       >
-                        <View
-                          style={[
-                            styles.entryRow,
-                            { backgroundColor: c.bg },
-                            isLastInGroup && styles.entryRowGroupLast,
-                          ]}
-                        >
-                          <EntryThumbnail
-                            thumbnailUrl={e.thumbnailUrl}
-                            entryEmoji={e.entryEmoji}
-                            surfaceColor={c.surface}
-                            borderColor={c.border}
-                          />
-                          <View style={{ flex: 1 }}>
-                            <Text style={styles.entryTitle}>
-                              {e.caffeine_mg} mg · {e.label}
-                            </Text>
-                            <Text style={styles.entryMeta}>
-                              {dayjs(e.timestamp).format('lll')}
-                            </Text>
-                          </View>
-                        </View>
+                        {openSwipeEntryId != null &&
+                        openSwipeEntryId !== e.id ? (
+                          <Pressable
+                            onPress={closeOpenEntrySwipe}
+                            accessibilityRole="none"
+                            style={entryRowStyle}
+                          >
+                            {entryRowBody}
+                          </Pressable>
+                        ) : (
+                          <View style={entryRowStyle}>{entryRowBody}</View>
+                        )}
                       </Swipeable>
                     )
                   })}
                 </View>
               ))}
-            </Pressable>
+            </View>
           ) : null}
 
           <Pressable
