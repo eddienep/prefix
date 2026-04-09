@@ -1006,12 +1006,25 @@ function Screen() {
 
   const rowSheetCanSave = useMemo(() => {
     if (!entryRowSheet) return false
+    if (entryRowSheet.mode === 'copy') return true
     const mg = Number(rowSheetMg)
     return Number.isFinite(mg) && mg > 0
   }, [entryRowSheet, rowSheetMg])
 
   const saveEntryRowSheet = useCallback(() => {
     if (!entryRowSheet) return
+    if (entryRowSheet.mode === 'copy') {
+      setEntries((prev) => [
+        ...prev,
+        {
+          ...entryRowSheet.entry,
+          timestamp: rowSheetAt.toISOString(),
+          id: newId(),
+        },
+      ])
+      closeEntryRowSheet()
+      return
+    }
     const mg = Number(rowSheetMg)
     if (!Number.isFinite(mg) || mg <= 0) return
     const labelTrim = rowSheetLabel.trim() || 'Caffeine'
@@ -1025,23 +1038,11 @@ function Screen() {
       ? { entryEmoji: rowSheetEmoji.trim() || DEFAULT_ENTRY_EMOJI }
       : {}
 
-    if (entryRowSheet.mode === 'edit') {
-      setEntries((prev) =>
-        prev.map((x) =>
-          x.id === entryRowSheet.entry.id ? { ...x, ...base, ...emojiPatch } : x
-        )
+    setEntries((prev) =>
+      prev.map((x) =>
+        x.id === entryRowSheet.entry.id ? { ...x, ...base, ...emojiPatch } : x
       )
-    } else {
-      setEntries((prev) => [
-        ...prev,
-        {
-          ...entryRowSheet.entry,
-          ...base,
-          ...emojiPatch,
-          id: newId(),
-        },
-      ])
-    }
+    )
     closeEntryRowSheet()
   }, [
     entryRowSheet,
@@ -2338,77 +2339,212 @@ function Screen() {
                   bounces={Platform.OS !== 'ios'}
                   contentContainerStyle={styles.logEntryDetailScrollContent}
                 >
-                  {!entryRowSheet.entry.sourceProductName ? (
+                  {entryRowSheet.mode === 'edit' ? (
                     <>
-                      <Text style={styles.label}>Icon</Text>
-                      <RNScrollView
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                        keyboardShouldPersistTaps="handled"
-                        contentContainerStyle={styles.logEntryEmojiScrollContent}
+                      {!entryRowSheet.entry.sourceProductName ? (
+                        <>
+                          <Text style={styles.label}>Icon</Text>
+                          <RNScrollView
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                            keyboardShouldPersistTaps="handled"
+                            contentContainerStyle={
+                              styles.logEntryEmojiScrollContent
+                            }
+                          >
+                            {CAFFEINE_ENTRY_EMOJI_OPTIONS.map((opt) => {
+                              const selected = rowSheetEmoji === opt.emoji
+                              return (
+                                <Pressable
+                                  key={opt.emoji + opt.label}
+                                  onPress={() => setRowSheetEmoji(opt.emoji)}
+                                  style={({ pressed }) => [
+                                    styles.logEntryEmojiChip,
+                                    {
+                                      borderColor: selected
+                                        ? c.accent
+                                        : c.border,
+                                      borderWidth: selected ? 2 : 1,
+                                      backgroundColor: selected
+                                        ? schemeTint(
+                                            c.accent,
+                                            c.surface === '#ffffff'
+                                              ? 0.12
+                                              : 0.2
+                                          ) ?? c.inputBg
+                                        : c.inputBg,
+                                      opacity: pressed ? 0.88 : 1,
+                                    },
+                                  ]}
+                                  accessibilityLabel={opt.label}
+                                  accessibilityRole="button"
+                                  accessibilityState={{ selected }}
+                                >
+                                  <Text style={styles.logEntryEmojiChipGlyph}>
+                                    {opt.emoji}
+                                  </Text>
+                                </Pressable>
+                              )
+                            })}
+                          </RNScrollView>
+                        </>
+                      ) : null}
+                      <Text
+                        style={[
+                          styles.label,
+                          {
+                            marginTop: entryRowSheet.entry.sourceProductName
+                              ? 0
+                              : 12,
+                          },
+                        ]}
                       >
-                        {CAFFEINE_ENTRY_EMOJI_OPTIONS.map((opt) => {
-                          const selected = rowSheetEmoji === opt.emoji
-                          return (
-                            <Pressable
-                              key={opt.emoji + opt.label}
-                              onPress={() => setRowSheetEmoji(opt.emoji)}
-                              style={({ pressed }) => [
-                                styles.logEntryEmojiChip,
-                                {
-                                  borderColor: selected
-                                    ? c.accent
-                                    : c.border,
-                                  borderWidth: selected ? 2 : 1,
-                                  backgroundColor: selected
-                                    ? schemeTint(
-                                        c.accent,
-                                        c.surface === '#ffffff' ? 0.12 : 0.2
-                                      ) ?? c.inputBg
-                                    : c.inputBg,
-                                  opacity: pressed ? 0.88 : 1,
-                                },
-                              ]}
-                              accessibilityLabel={opt.label}
-                              accessibilityRole="button"
-                              accessibilityState={{ selected }}
-                            >
-                              <Text style={styles.logEntryEmojiChipGlyph}>
-                                {opt.emoji}
-                              </Text>
-                            </Pressable>
-                          )
-                        })}
-                      </RNScrollView>
+                        Amount (mg)
+                      </Text>
+                      <TextInput
+                        style={styles.input}
+                        keyboardType="number-pad"
+                        value={rowSheetMg}
+                        onChangeText={setRowSheetMg}
+                      />
+                      <Text style={[styles.label, { marginTop: 12 }]}>
+                        Label (optional)
+                      </Text>
+                      <TextInput
+                        style={styles.input}
+                        placeholder="e.g. coffee"
+                        placeholderTextColor={c.muted}
+                        value={rowSheetLabel}
+                        onChangeText={setRowSheetLabel}
+                      />
                     </>
-                  ) : null}
-                  <Text
-                    style={[
-                      styles.label,
-                      {
-                        marginTop:
-                          entryRowSheet.entry.sourceProductName ? 0 : 12,
-                      },
-                    ]}
-                  >
-                    Amount (mg)
-                  </Text>
-                  <TextInput
-                    style={styles.input}
-                    keyboardType="number-pad"
-                    value={rowSheetMg}
-                    onChangeText={setRowSheetMg}
-                  />
-                  <Text style={[styles.label, { marginTop: 12 }]}>
-                    Label (optional)
-                  </Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="e.g. coffee"
-                    placeholderTextColor={c.muted}
-                    value={rowSheetLabel}
-                    onChangeText={setRowSheetLabel}
-                  />
+                  ) : (
+                    <>
+                      <Text
+                        style={[styles.entryRowCopyIntro, { color: c.muted }]}
+                      >
+                        Amount, label, and icon match the original entry. Only
+                        time can be changed below.
+                      </Text>
+                      {!entryRowSheet.entry.sourceProductName ? (
+                        <>
+                          <View
+                            style={[
+                              styles.entryRowCopyReadonlyLabelRow,
+                              {
+                                marginTop: 4,
+                              },
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.label,
+                                styles.entryRowCopyReadonlyLabelText,
+                              ]}
+                            >
+                              Icon
+                            </Text>
+                            <Ionicons
+                              name="lock-closed-outline"
+                              size={14}
+                              color={c.muted}
+                              accessibilityElementsHidden
+                              importantForAccessibility="no"
+                            />
+                          </View>
+                          <View
+                            style={[
+                              styles.entryRowCopyReadonlyField,
+                              { borderColor: c.border },
+                            ]}
+                          >
+                            <Text style={styles.logEntryEmojiChipGlyph}>
+                              {entryRowSheet.entry.entryEmoji ??
+                                DEFAULT_ENTRY_EMOJI}
+                            </Text>
+                          </View>
+                        </>
+                      ) : null}
+                      <View
+                        style={[
+                          styles.entryRowCopyReadonlyLabelRow,
+                          {
+                            marginTop: entryRowSheet.entry.sourceProductName
+                              ? 4
+                              : 12,
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.label,
+                            styles.entryRowCopyReadonlyLabelText,
+                          ]}
+                        >
+                          Amount (mg)
+                        </Text>
+                        <Ionicons
+                          name="lock-closed-outline"
+                          size={14}
+                          color={c.muted}
+                          accessibilityElementsHidden
+                          importantForAccessibility="no"
+                        />
+                      </View>
+                      <View
+                        style={[
+                          styles.entryRowCopyReadonlyField,
+                          { borderColor: c.border },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.entryRowCopyReadonlyValueStrong,
+                            { color: c.text },
+                          ]}
+                        >
+                          {String(entryRowSheet.entry.caffeine_mg)}
+                        </Text>
+                      </View>
+                      <View
+                        style={[
+                          styles.entryRowCopyReadonlyLabelRow,
+                          { marginTop: 12 },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.label,
+                            styles.entryRowCopyReadonlyLabelText,
+                          ]}
+                        >
+                          Label
+                        </Text>
+                        <Ionicons
+                          name="lock-closed-outline"
+                          size={14}
+                          color={c.muted}
+                          accessibilityElementsHidden
+                          importantForAccessibility="no"
+                        />
+                      </View>
+                      <View
+                        style={[
+                          styles.entryRowCopyReadonlyField,
+                          { borderColor: c.border },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.entryRowCopyReadonlyValue,
+                            { color: c.text },
+                          ]}
+                        >
+                          {entryRowSheet.entry.label}
+                        </Text>
+                      </View>
+                    </>
+                  )}
                   <Text style={[styles.label, { marginTop: 12 }]}>Time</Text>
                   <Pressable
                     onPress={() => setRowSheetShowPicker(true)}
@@ -2772,6 +2908,36 @@ function makeStyles(c: ThemeColors) {
       textTransform: 'uppercase',
       letterSpacing: 0.6,
       marginBottom: 6,
+    },
+    /** Copy modal: intro + read-only fields (dashed border, not input). */
+    entryRowCopyIntro: {
+      fontSize: 13,
+      lineHeight: 19,
+      marginBottom: 12,
+    },
+    entryRowCopyReadonlyLabelRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      marginBottom: 6,
+    },
+    entryRowCopyReadonlyLabelText: {
+      marginBottom: 0,
+    },
+    entryRowCopyReadonlyField: {
+      borderWidth: 1,
+      borderStyle: 'dashed',
+      borderRadius: 10,
+      paddingHorizontal: 12,
+      paddingVertical: 12,
+      backgroundColor: c.bg,
+    },
+    entryRowCopyReadonlyValue: {
+      fontSize: 16,
+    },
+    entryRowCopyReadonlyValueStrong: {
+      fontSize: 16,
+      fontWeight: '700',
     },
     input: {
       borderWidth: 1,
