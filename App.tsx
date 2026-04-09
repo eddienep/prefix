@@ -417,11 +417,18 @@ function Screen() {
 
   const [route, setRoute] = useState<'home' | 'settings'>('home')
   const [draftSettings, setDraftSettings] = useState<AppSettings>(DEFAULT_SETTINGS)
+  /** Raw text for settings inputs so clearing the field does not coerce `''` → 0 via `Number('') || 0`. */
+  const [settingsWeightStr, setSettingsWeightStr] = useState('')
+  const [settingsHalfLifeStr, setSettingsHalfLifeStr] = useState('')
+  const [settingsSleepCustomStr, setSettingsSleepCustomStr] = useState('')
   const [draftTheme, setDraftTheme] = useState<ThemePreference>('system')
 
   const openSettings = useCallback(() => {
     closeOpenEntrySwipeRef.current?.()
     setDraftSettings({ ...settings })
+    setSettingsWeightStr(String(settings.weightValue))
+    setSettingsHalfLifeStr(String(settings.halfLifeHours))
+    setSettingsSleepCustomStr(String(settings.sleepThresholdCustomMg))
     setDraftTheme(themePreference)
     // Home unmounts; the chart ScrollView resets to 0 but these refs kept old values,
     // so the "now" line and date banner desync until "Today" unless we re-run initial scroll.
@@ -432,15 +439,42 @@ function Screen() {
   }, [settings, themePreference])
 
   const saveSettingsAndClose = useCallback(() => {
-    const half = Math.max(0.5, Number(draftSettings.halfLifeHours) || 5)
-    const w = Math.max(1, Number(draftSettings.weightValue) || DEFAULT_SETTINGS.weightValue)
-    const rawCustom = Number(draftSettings.sleepThresholdCustomMg)
+    const halfParsed = Number(settingsHalfLifeStr.replace(',', '.'))
+    const half = Math.max(
+      0.5,
+      settingsHalfLifeStr.trim() !== '' &&
+        Number.isFinite(halfParsed) &&
+        halfParsed > 0
+        ? halfParsed
+        : Number(draftSettings.halfLifeHours) || 5
+    )
+    const wParsed = Number(settingsWeightStr.replace(',', '.'))
+    const w = Math.max(
+      1,
+      settingsWeightStr.trim() !== '' &&
+        Number.isFinite(wParsed) &&
+        wParsed > 0
+        ? wParsed
+        : Number(draftSettings.weightValue) || DEFAULT_SETTINGS.weightValue
+    )
     const fallbackCustom = sleepThresholdMg(weightToKg(w, draftSettings.weightUnit))
+    const customParsed = Number(settingsSleepCustomStr.replace(',', '.'))
+    const fromCustomField =
+      draftSettings.sleepThresholdUseCustom &&
+      settingsSleepCustomStr.trim() !== '' &&
+      Number.isFinite(customParsed)
+        ? Math.max(0, Math.min(5000, customParsed))
+        : null
+    const rawStored = Number(draftSettings.sleepThresholdCustomMg)
     const customMg = Math.max(
       0,
       Math.min(
         5000,
-        Number.isFinite(rawCustom) ? rawCustom : fallbackCustom
+        fromCustomField != null
+          ? fromCustomField
+          : Number.isFinite(rawStored)
+            ? rawStored
+            : fallbackCustom
       )
     )
     setSettings({
@@ -451,7 +485,13 @@ function Screen() {
     })
     setThemePreference(draftTheme)
     setRoute('home')
-  }, [draftSettings, draftTheme])
+  }, [
+    draftSettings,
+    draftTheme,
+    settingsWeightStr,
+    settingsHalfLifeStr,
+    settingsSleepCustomStr,
+  ])
 
   const closeSettingsWithoutSave = useCallback(() => {
     setRoute('home')
@@ -1225,8 +1265,19 @@ function Screen() {
 
   const styles = useMemo(() => makeStyles(c), [c])
 
+  const weightValueForDraftHints =
+    route === 'settings'
+      ? (() => {
+          const t = settingsWeightStr.trim()
+          if (t === '') return draftSettings.weightValue
+          const n = Number(settingsWeightStr.replace(',', '.'))
+          return Number.isFinite(n) && n > 0
+            ? Math.max(1, n)
+            : draftSettings.weightValue
+        })()
+      : draftSettings.weightValue
   const draftWeightKg = weightToKg(
-    draftSettings.weightValue,
+    weightValueForDraftHints,
     draftSettings.weightUnit
   )
   const draftRecommendedSleepMg = sleepThresholdMg(draftWeightKg)
@@ -1282,13 +1333,17 @@ function Screen() {
               <TextInput
                 style={styles.input}
                 keyboardType="decimal-pad"
-                value={String(draftSettings.weightValue)}
-                onChangeText={(t) =>
-                  setDraftSettings((s) => ({
-                    ...s,
-                    weightValue: Number(t.replace(',', '.')) || 0,
-                  }))
-                }
+                value={settingsWeightStr}
+                onChangeText={(t) => {
+                  setSettingsWeightStr(t)
+                  const n = Number(t.replace(',', '.'))
+                  if (t.trim() !== '' && Number.isFinite(n) && n > 0) {
+                    setDraftSettings((s) => ({
+                      ...s,
+                      weightValue: Math.max(1, n),
+                    }))
+                  }
+                }}
               />
               <View style={styles.unitRow}>
                 {(['kg', 'lb'] as const).map((u) => (
@@ -1322,16 +1377,17 @@ function Screen() {
               <TextInput
                 style={styles.input}
                 keyboardType="decimal-pad"
-                value={String(draftSettings.halfLifeHours)}
-                onChangeText={(t) =>
-                  setDraftSettings((s) => ({
-                    ...s,
-                    halfLifeHours: Math.max(
-                      0.5,
-                      Number(t.replace(',', '.')) || 5
-                    ),
-                  }))
-                }
+                value={settingsHalfLifeStr}
+                onChangeText={(t) => {
+                  setSettingsHalfLifeStr(t)
+                  const n = Number(t.replace(',', '.'))
+                  if (t.trim() !== '' && Number.isFinite(n) && n > 0) {
+                    setDraftSettings((s) => ({
+                      ...s,
+                      halfLifeHours: Math.max(0.5, n),
+                    }))
+                  }
+                }}
               />
               <Text style={styles.hint}>Typical average ~5 h.</Text>
             </View>
@@ -1367,10 +1423,13 @@ function Screen() {
                   </Text>
                 </Pressable>
                 <Pressable
-                  onPress={() =>
+                  onPress={() => {
                     setDraftSettings((s) => {
                       const wkg = weightToKg(s.weightValue, s.weightUnit)
                       const rec = sleepThresholdMg(wkg)
+                      if (!s.sleepThresholdUseCustom) {
+                        setSettingsSleepCustomStr(String(rec))
+                      }
                       return {
                         ...s,
                         sleepThresholdUseCustom: true,
@@ -1379,7 +1438,7 @@ function Screen() {
                           : rec,
                       }
                     })
-                  }
+                  }}
                   style={[
                     styles.unitChip,
                     draftSettings.sleepThresholdUseCustom && styles.unitChipOn,
@@ -1404,13 +1463,20 @@ function Screen() {
                   <TextInput
                     style={styles.input}
                     keyboardType="decimal-pad"
-                    value={String(draftSettings.sleepThresholdCustomMg)}
-                    onChangeText={(t) =>
-                      setDraftSettings((s) => ({
-                        ...s,
-                        sleepThresholdCustomMg: Number(t.replace(',', '.')) || 0,
-                      }))
-                    }
+                    value={settingsSleepCustomStr}
+                    onChangeText={(t) => {
+                      setSettingsSleepCustomStr(t)
+                      const n = Number(t.replace(',', '.'))
+                      if (t.trim() !== '' && Number.isFinite(n)) {
+                        setDraftSettings((s) => ({
+                          ...s,
+                          sleepThresholdCustomMg: Math.max(
+                            0,
+                            Math.min(5000, n)
+                          ),
+                        }))
+                      }
+                    }}
                   />
                 </>
               ) : null}

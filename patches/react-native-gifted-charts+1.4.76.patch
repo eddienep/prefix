@@ -1,0 +1,151 @@
+diff --git a/node_modules/react-native-gifted-charts/dist/Components/BarAndLineChartsWrapper/renderHorizSections.js b/node_modules/react-native-gifted-charts/dist/Components/BarAndLineChartsWrapper/renderHorizSections.js
+index e05fd0d..0a70efa 100644
+--- a/node_modules/react-native-gifted-charts/dist/Components/BarAndLineChartsWrapper/renderHorizSections.js
++++ b/node_modules/react-native-gifted-charts/dist/Components/BarAndLineChartsWrapper/renderHorizSections.js
+@@ -30,13 +30,25 @@ import { styles } from '../../LineChart/styles';
+ import { getHorizSectionVals, yAxisSides, chartTypes, } from 'gifted-charts-core';
+ export var renderHorizSections = function (props) {
+     var _a, _b, _c, _d, _e, _f, _g, _h, _j;
+-    var chartType = props.chartType, width = props.width, noOfSectionsBelowXAxis = props.noOfSectionsBelowXAxis, totalWidth = props.totalWidth, endSpacing = props.endSpacing, yAxisSide = props.yAxisSide, horizontalRulesStyle = props.horizontalRulesStyle, noOfSections = props.noOfSections, sectionColors = props.sectionColors, stepHeight = props.stepHeight, negativeStepHeight = props.negativeStepHeight, yAxisLabelWidth = props.yAxisLabelWidth, yAxisLabelContainerStyle = props.yAxisLabelContainerStyle, yAxisThickness = props.yAxisThickness, yAxisColor = props.yAxisColor, xAxisThickness = props.xAxisThickness, xAxisColor = props.xAxisColor, xAxisLength = props.xAxisLength, xAxisType = props.xAxisType, dashWidth = props.dashWidth, dashGap = props.dashGap, backgroundColor = props.backgroundColor, hideRules = props.hideRules, rulesLength = props.rulesLength, rulesType = props.rulesType, rulesThickness = props.rulesThickness, rulesColor = props.rulesColor, rulesConfigArray = props.rulesConfigArray, spacing = props.spacing, showYAxisIndices = props.showYAxisIndices, yAxisIndicesHeight = props.yAxisIndicesHeight, yAxisIndicesWidth = props.yAxisIndicesWidth, yAxisIndicesColor = props.yAxisIndicesColor, hideOrigin = props.hideOrigin, hideYAxisText = props.hideYAxisText, yAxisTextNumberOfLines = props.yAxisTextNumberOfLines, yAxisTextStyle = props.yAxisTextStyle, rotateYAxisTexts = props.rotateYAxisTexts, rtl = props.rtl, containerHeight = props.containerHeight, maxValue = props.maxValue, yAxisOffset = props.yAxisOffset, horizontal = props.horizontal, yAxisAtTop = props.yAxisAtTop, secondaryYAxis = props.secondaryYAxis, onlyReferenceLines = props.onlyReferenceLines, onlyLabels = props.onlyLabels, renderReferenceLines = props.renderReferenceLines, secondaryXAxis = props.secondaryXAxis, customBackground = props.customBackground, allowFontScaling = props.allowFontScaling;
++    var chartType = props.chartType, width = props.width, noOfSectionsBelowXAxis = props.noOfSectionsBelowXAxis, totalWidth = props.totalWidth, endSpacing = props.endSpacing, yAxisSide = props.yAxisSide, horizontalRulesStyle = props.horizontalRulesStyle, noOfSections = props.noOfSections, sectionColors = props.sectionColors, stepHeight = props.stepHeight, negativeStepHeight = props.negativeStepHeight, yAxisLabelWidth = props.yAxisLabelWidth, yAxisLabelContainerStyle = props.yAxisLabelContainerStyle, yAxisThickness = props.yAxisThickness, yAxisColor = props.yAxisColor, xAxisThickness = props.xAxisThickness, xAxisColor = props.xAxisColor, xAxisLength = props.xAxisLength, xAxisType = props.xAxisType, dashWidth = props.dashWidth, dashGap = props.dashGap, backgroundColor = props.backgroundColor, hideRules = props.hideRules, rulesLength = props.rulesLength, rulesType = props.rulesType, rulesThickness = props.rulesThickness, rulesColor = props.rulesColor, rulesConfigArray = props.rulesConfigArray, spacing = props.spacing, showYAxisIndices = props.showYAxisIndices, yAxisIndicesHeight = props.yAxisIndicesHeight, yAxisIndicesWidth = props.yAxisIndicesWidth, yAxisIndicesColor = props.yAxisIndicesColor, hideOrigin = props.hideOrigin, hideYAxisText = props.hideYAxisText, yAxisTextNumberOfLines = props.yAxisTextNumberOfLines, yAxisTextStyle = props.yAxisTextStyle, rotateYAxisTexts = props.rotateYAxisTexts, rtl = props.rtl, containerHeight = props.containerHeight, maxValue = props.maxValue, yAxisOffset = props.yAxisOffset, horizontal = props.horizontal, yAxisAtTop = props.yAxisAtTop, secondaryYAxis = props.secondaryYAxis, onlyReferenceLines = props.onlyReferenceLines, onlyLabels = props.onlyLabels, renderReferenceLines = props.renderReferenceLines, secondaryXAxis = props.secondaryXAxis, customBackground = props.customBackground, allowFontScaling = props.allowFontScaling, floatingYAxisLabels = props.floatingYAxisLabels;
++    /** When labels float in-plot, do not apply `yAxisLabelContainerStyle` (often includes width) to the left gutter or it reserves space and clips rules. */
++    var leftGutterLabelStyle = floatingYAxisLabels ? undefined : yAxisLabelContainerStyle;
+     var _k = getHorizSectionVals(props), secondaryYAxisConfig = _k.secondaryYAxisConfig, horizSections = _k.horizSections, yAxisExtraHeightAtTop = _k.yAxisExtraHeightAtTop, secondaryHorizSections = _k.secondaryHorizSections, showReferenceLine1 = _k.showReferenceLine1, referenceLine1Config = _k.referenceLine1Config, referenceLine1Position = _k.referenceLine1Position, showReferenceLine2 = _k.showReferenceLine2, referenceLine2Config = _k.referenceLine2Config, referenceLine2Position = _k.referenceLine2Position, showReferenceLine3 = _k.showReferenceLine3, referenceLine3Config = _k.referenceLine3Config, referenceLine3Position = _k.referenceLine3Position, horizSectionsBelow = _k.horizSectionsBelow, secondaryHorizSectionsBelow = _k.secondaryHorizSectionsBelow, getLabelTexts = _k.getLabelTexts, getLabelTextsForSecondaryYAxis = _k.getLabelTextsForSecondaryYAxis;
+     var secondaryYAxisExtraHeightAtBottom = 10;
+     var negativeSectionsCountDiffPrimaryVsSecondary = secondaryHorizSectionsBelow.length - horizSectionsBelow.length;
+     var isLineChart = chartType === chartTypes.LINE;
+     var isLineBiColor = chartType === chartTypes.LINE_BI_COLOR;
+     var chartWiseTotalWidth = chartType === chartTypes.BUBBLE ? totalWidth : totalWidth - spacing;
++    /**
++     * Line charts scroll horizontally: rules/x-axis must span full `totalWidth`, not viewport
++     * `props.width` / `width` (otherwise grid and axis clip to the screen).
++     */
++    var horizRulesSpan = isLineChart || isLineBiColor
++        ? totalWidth
++        : (props.width || chartWiseTotalWidth) + endSpacing;
++    var horizSectionRowWidth = isLineChart || isLineBiColor
++        ? totalWidth + endSpacing
++        : (width !== null && width !== void 0 ? width : totalWidth) + endSpacing;
+     var renderAxesAndRules = function (index) {
+         var _a, _b, _c, _d, _e, _f, _g, _h;
+         var invertedIndex = horizSections.length - index - 1;
+@@ -50,7 +62,7 @@ export var renderHorizSections = function (props) {
+                 {
+                     borderColor: yAxisColor,
+                     backgroundColor: (_a = sectionColors === null || sectionColors === void 0 ? void 0 : sectionColors[invertedIndex]) !== null && _a !== void 0 ? _a : backgroundColor,
+-                    width: (props.width || chartWiseTotalWidth) + endSpacing,
++                    width: horizRulesSpan,
+                 },
+                 !index ? { height: stepHeight / 2, marginTop: stepHeight / 2 } : null,
+                 yAxisSide === yAxisSides.RIGHT
+@@ -59,15 +71,14 @@ export var renderHorizSections = function (props) {
+             ], children: [index === noOfSections ? (_jsx(Rule, { config: {
+                         thickness: xAxisThickness,
+                         color: xAxisColor,
+-                        width: xAxisLength ||
+-                            (props.width || chartWiseTotalWidth) + endSpacing,
++                        width: xAxisLength || horizRulesSpan,
+                         dashWidth: dashWidth,
+                         dashGap: dashGap,
+                         type: xAxisType,
+                     } })) : hideRules ? null : (_jsx(Rule, { config: {
+                         thickness: (_b = rulesConfigArrayLocal === null || rulesConfigArrayLocal === void 0 ? void 0 : rulesConfigArrayLocal.rulesThickness) !== null && _b !== void 0 ? _b : rulesThickness,
+                         color: (_c = rulesConfigArrayLocal === null || rulesConfigArrayLocal === void 0 ? void 0 : rulesConfigArrayLocal.rulesColor) !== null && _c !== void 0 ? _c : rulesColor,
+-                        width: (_e = (_d = rulesConfigArrayLocal === null || rulesConfigArrayLocal === void 0 ? void 0 : rulesConfigArrayLocal.rulesLength) !== null && _d !== void 0 ? _d : rulesLength) !== null && _e !== void 0 ? _e : (props.width || chartWiseTotalWidth) + endSpacing,
++                        width: (_e = (_d = rulesConfigArrayLocal === null || rulesConfigArrayLocal === void 0 ? void 0 : rulesConfigArrayLocal.rulesLength) !== null && _d !== void 0 ? _d : rulesLength) !== null && _e !== void 0 ? _e : horizRulesSpan,
+                         dashWidth: (_f = rulesConfigArrayLocal === null || rulesConfigArrayLocal === void 0 ? void 0 : rulesConfigArrayLocal.dashWidth) !== null && _f !== void 0 ? _f : dashWidth,
+                         dashGap: (_g = rulesConfigArrayLocal === null || rulesConfigArrayLocal === void 0 ? void 0 : rulesConfigArrayLocal.dashGap) !== null && _g !== void 0 ? _g : dashGap,
+                         type: (_h = rulesConfigArrayLocal === null || rulesConfigArrayLocal === void 0 ? void 0 : rulesConfigArrayLocal.rulesType) !== null && _h !== void 0 ? _h : rulesType,
+@@ -89,7 +100,7 @@ export var renderHorizSections = function (props) {
+         return (_jsxs(View, { style: [
+                 styles.horizBar,
+                 {
+-                    width: (width !== null && width !== void 0 ? width : totalWidth) + endSpacing,
++                    width: horizSectionRowWidth,
+                     top: stepHeight / 2,
+                 },
+                 horizontal &&
+@@ -103,7 +114,7 @@ export var renderHorizSections = function (props) {
+                             height: yAxisExtraHeightAtTop,
+                             width: yAxisSide === yAxisSides.RIGHT ? 0 : yAxisLabelWidth,
+                         },
+-                        yAxisLabelContainerStyle,
++                        leftGutterLabelStyle,
+                     ] }), _jsx(View, { style: [
+                         styles.leftPart,
+                         {
+@@ -114,7 +125,7 @@ export var renderHorizSections = function (props) {
+                                 ? ((_b = secondaryXAxis.thickness) !== null && _b !== void 0 ? _b : xAxisThickness)
+                                 : 0,
+                             backgroundColor: backgroundColor,
+-                            width: (props.width || chartWiseTotalWidth) + endSpacing,
++                            width: horizRulesSpan,
+                         },
+                         yAxisSide === yAxisSides.RIGHT
+                             ? { borderRightWidth: yAxisThickness }
+@@ -241,8 +252,7 @@ export var renderHorizSections = function (props) {
+                     } }), _jsx(View, { style: [styles.leftPart, { backgroundColor: backgroundColor }], children: hideRules ? null : (_jsx(Rule, { config: {
+                             thickness: rulesThickness,
+                             color: rulesColor,
+-                            width: rulesLength ||
+-                                (props.width || chartWiseTotalWidth) + endSpacing,
++                            width: rulesLength || horizRulesSpan,
+                             dashWidth: dashWidth,
+                             dashGap: dashGap,
+                             type: rulesType,
+@@ -254,12 +264,11 @@ export var renderHorizSections = function (props) {
+         (isLineChart ? 70 : 40);
+     return (_jsx(_Fragment, { children: onlyReferenceLines ? (_jsx(View, { style: {
+                 flexDirection: 'row',
+-            }, children: _jsx(View, { style: { width: (width !== null && width !== void 0 ? width : totalWidth) + endSpacing }, children: referenceLines() }) })) : (_jsxs(View, { pointerEvents: "none", style: {
++            }, children: _jsx(View, { style: { width: horizSectionRowWidth }, children: referenceLines() }) })) : (_jsxs(View, { pointerEvents: "none", style: {
+                 flexDirection: 'row',
+                 marginTop: stepHeight / -2,
+                 position: onlyLabels ? 'absolute' : 'relative',
+-            }, children: [_jsx(View, { style: { width: (width !== null && width !== void 0 ? width : totalWidth) + endSpacing }, children: onlyLabels ? (!hideYAxisText &&
+-                        horizSections.map(function (sectionItems, index) {
++            }, children: [_jsx(View, { style: { width: horizSectionRowWidth }, children: onlyLabels ? (horizSections.map(function (sectionItems, index) {
+                             var label = getLabelTexts(sectionItems.value, index);
+                             if (hideOrigin && index === horizSections.length - 1) {
+                                 label = '';
+@@ -302,8 +311,7 @@ export var renderHorizSections = function (props) {
+                         })) : (_jsxs(_Fragment, { children: [customBackground ? (_jsx(View, { style: {
+                                     position: 'absolute',
+                                     backgroundColor: customBackground.color,
+-                                    width: (_a = customBackground.width) !== null && _a !== void 0 ? _a : (width !== null && width !== void 0 ? width : totalWidth) +
+-                                        endSpacing -
++                                    width: (_a = customBackground.width) !== null && _a !== void 0 ? _a : horizSectionRowWidth -
+                                         9 +
+                                         ((_b = customBackground.widthAdjustment) !== null && _b !== void 0 ? _b : 0),
+                                     height: (_c = customBackground.height) !== null && _c !== void 0 ? _c : '100%',
+@@ -316,7 +324,7 @@ export var renderHorizSections = function (props) {
+                                 return (_jsxs(View, { style: [
+                                         styles.horizBar,
+                                         {
+-                                            width: (width !== null && width !== void 0 ? width : totalWidth) + endSpacing,
++                                            width: horizSectionRowWidth,
+                                         },
+                                         horizontal &&
+                                             !yAxisAtTop && {
+@@ -333,7 +341,7 @@ export var renderHorizSections = function (props) {
+                                                         ? 0
+                                                         : yAxisLabelWidth,
+                                                 },
+-                                                yAxisLabelContainerStyle,
++                                                leftGutterLabelStyle,
+                                             ] }), renderAxesAndRules(index)] }, index));
+                             }), 
+                             /***********************************************************************************************/
+diff --git a/node_modules/react-native-gifted-charts/dist/LineChart/index.js b/node_modules/react-native-gifted-charts/dist/LineChart/index.js
+index 17db3dc..441d74d 100644
+--- a/node_modules/react-native-gifted-charts/dist/LineChart/index.js
++++ b/node_modules/react-native-gifted-charts/dist/LineChart/index.js
+@@ -1005,6 +1005,8 @@ export var LineChart = function (props) {
+         },
+         bounces: props.bounces,
+         overScrollMode: (_d = props.overScrollMode) !== null && _d !== void 0 ? _d : 'auto',
++        /** Snappier horizontal scroll (default ~0.998 iOS / long coast on Android). */
++        decelerationRate: 'fast',
+     };
+     var renderStrips = function (item, index, ind) {
+         var _a, _b, _c, _d, _e, _f, _g, _h;
