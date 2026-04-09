@@ -67,7 +67,7 @@ import {
   CAFFEINE_ENTRY_EMOJI_OPTIONS,
   DEFAULT_ENTRY_EMOJI,
 } from './src/caffeineEmojis'
-import { EntryThumbnail } from './src/EntryThumbnail'
+import { EntryThumbnail, ENTRY_THUMB_SIZE } from './src/EntryThumbnail'
 import { loadState, saveState, type ThemePreference } from './src/storage'
 import type { AppSettings, CaffeineEntry, WeightUnit } from './src/types'
 
@@ -1352,7 +1352,7 @@ function Screen() {
                   },
                 ]}
               >
-                <Ionicons name="today-outline" size={18} color={c.accent} />
+                <Ionicons name="today-outline" size={15} color={c.accent} />
                 <Text style={[styles.chartTodayBtnText, { color: c.accent }]}>
                   Today
                 </Text>
@@ -1510,24 +1510,26 @@ function Screen() {
                         friction={2}
                         overshootRight={false}
                         renderRightActions={() => (
-                          <Pressable
-                            onPress={() => removeEntry(e.id)}
-                            style={({ pressed }) => [
-                              styles.entrySwipeDelete,
-                              {
-                                backgroundColor: c.danger,
-                                opacity: pressed ? 0.88 : 1,
-                              },
-                            ]}
-                            accessibilityLabel="Delete entry"
-                            accessibilityRole="button"
-                          >
-                            <Ionicons
-                              name="trash-outline"
-                              size={22}
-                              color="#fff"
-                            />
-                          </Pressable>
+                          <View style={styles.entrySwipeDeleteOuter}>
+                            <Pressable
+                              onPress={() => removeEntry(e.id)}
+                              style={({ pressed }) => [
+                                styles.entrySwipeDelete,
+                                {
+                                  backgroundColor: c.danger,
+                                  opacity: pressed ? 0.88 : 1,
+                                },
+                              ]}
+                              accessibilityLabel="Delete entry"
+                              accessibilityRole="button"
+                            >
+                              <Ionicons
+                                name="trash-outline"
+                                size={20}
+                                color="#fff"
+                              />
+                            </Pressable>
+                          </View>
                         )}
                       >
                         <View
@@ -2429,12 +2431,18 @@ function makeStyles(c: ThemeColors) {
     },
     entryTitle: { fontSize: 15, fontWeight: '600', color: c.textStrong },
     entryMeta: { fontSize: 12, color: c.muted, marginTop: 2 },
-    entrySwipeDelete: {
-      width: 76,
+    /** Fills row height from Swipeable’s action strip so the button can center vertically. */
+    entrySwipeDeleteOuter: {
       alignSelf: 'stretch',
       justifyContent: 'center',
       alignItems: 'center',
-      marginLeft: 8,
+      paddingLeft: 8,
+    },
+    entrySwipeDelete: {
+      width: ENTRY_THUMB_SIZE,
+      height: ENTRY_THUMB_SIZE,
+      justifyContent: 'center',
+      alignItems: 'center',
       borderRadius: 10,
     },
     chartCaption: { fontSize: 12, color: c.muted, marginBottom: 8 },
@@ -2453,13 +2461,13 @@ function makeStyles(c: ThemeColors) {
     chartTodayBtn: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 6,
-      paddingVertical: 8,
-      paddingHorizontal: 12,
+      gap: 4,
+      paddingVertical: 5,
+      paddingHorizontal: 8,
       borderRadius: 10,
       borderWidth: 1,
     },
-    chartTodayBtnText: { fontSize: 14, fontWeight: '600' },
+    chartTodayBtnText: { fontSize: 12, fontWeight: '600' },
     chartRow: {
       flexDirection: 'row',
       alignItems: 'stretch',
