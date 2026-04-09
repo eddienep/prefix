@@ -8,6 +8,7 @@ import {
   Text,
   View,
 } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import {
   isCustomRecentPickRow,
   type CaffeinePickerRow,
@@ -39,6 +40,7 @@ export const CaffeineSourceList = memo(function CaffeineSourceList({
   listHeader,
   emptyHint = 'No matches. Try another search.',
 }: Props) {
+  const insets = useSafeAreaInsets()
   const renderItem = useCallback(
     ({ item }: { item: CaffeinePickerRow }) => {
       if (isCustomRecentPickRow(item)) {
@@ -151,7 +153,10 @@ export const CaffeineSourceList = memo(function CaffeineSourceList({
       }
       onScrollBeginDrag={() => Keyboard.dismiss()}
       style={styles.flex}
-      contentContainerStyle={styles.listContent}
+      contentContainerStyle={[
+        styles.listContent,
+        { paddingBottom: 28 + insets.bottom },
+      ]}
       initialNumToRender={14}
       maxToRenderPerBatch={20}
       windowSize={10}
@@ -170,7 +175,6 @@ export const CaffeineSourceList = memo(function CaffeineSourceList({
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   listContent: {
-    paddingBottom: 28,
     paddingHorizontal: 16,
   },
   row: {

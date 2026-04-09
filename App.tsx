@@ -173,32 +173,77 @@ const ChartNowTimeOverlayLabel = memo(function ChartNowTimeOverlayLabel({
 
 const PALETTE = {
   light: {
-    bg: '#f8fafc',
-    surface: '#ffffff',
-    border: '#e2e8f0',
-    text: '#475569',
-    textStrong: '#0f172a',
-    accent: '#0d9488',
-    chart: '#0f766e',
-    threshold: '#d97706',
-    danger: '#dc2626',
-    muted: '#64748b',
-    inputBg: '#f1f5f9',
+    // Base (warmer + less harsh)
+    bg: '#f3f4f6',          // softer than blue-white
+    surface: '#f9fafb',     // slightly off-white (not pure white)
+    /** Top bar, bottom chrome (distinct from page bg). */
+    headerSurface: '#ffffff',
+    border: '#e5e7eb',
+
+    // Text (balanced contrast)
+    text: '#52525b',        // softer than slate-600
+    textStrong: '#09090b',  // near-black but less blue than before
+
+    // Brand / State
+    accent: '#0f766e',      // keep your control green
+    chart: '#0d9488',
+
+    // Slightly softer warning tones
+    threshold: '#f59e0b',
+    danger: '#ef4444',      // less harsh than dc2626
+
+    // Supporting
+    muted: '#71717a',       // warmer gray
+    inputBg: '#f4f4f5',     // reduces contrast vs surface
   },
+
   dark: {
-    bg: '#0f172a',
-    surface: '#1e293b',
-    border: '#334155',
+    bg: '#020617',
+    surface: '#0f172a',
+    headerSurface: '#111827',
+    border: '#1e293b',
+
     text: '#94a3b8',
-    textStrong: '#f1f5f9',
+    textStrong: '#f8fafc',
+
     accent: '#2dd4bf',
-    chart: '#5eead4',
+    chart: '#14b8a6',
     threshold: '#fbbf24',
     danger: '#f87171',
+
     muted: '#64748b',
-    inputBg: '#0f172a',
+    inputBg: '#020617',
   },
 } as const
+
+// const PALETTE = {
+//   light: {
+//     bg: '#f8fafc',
+//     surface: '#ffffff',
+//     border: '#e2e8f0',
+//     text: '#475569',
+//     textStrong: '#0f172a',
+//     accent: '#0d9488',
+//     chart: '#0f766e',
+//     threshold: '#d97706',
+//     danger: '#dc2626',
+//     muted: '#64748b',
+//     inputBg: '#f1f5f9',
+//   },
+//   dark: {
+//     bg: '#0f172a',
+//     surface: '#1e293b',
+//     border: '#334155',
+//     text: '#94a3b8',
+//     textStrong: '#f1f5f9',
+//     accent: '#2dd4bf',
+//     chart: '#5eead4',
+//     threshold: '#fbbf24',
+//     danger: '#f87171',
+//     muted: '#64748b',
+//     inputBg: '#0f172a',
+//   },
+// } as const
 
 type ThemeColors = (typeof PALETTE)[keyof typeof PALETTE]
 
@@ -1293,39 +1338,62 @@ function Screen() {
 
   if (route === 'settings') {
     return (
-      <SafeAreaView style={[styles.safe, { backgroundColor: c.bg }]}>
+      <View style={[styles.flex, { backgroundColor: c.bg }]}>
         <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
         <KeyboardAvoidingView
           style={styles.flex}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
+          <SafeAreaView
+            edges={['top', 'left', 'right']}
+            style={{ backgroundColor: c.headerSurface }}
+          >
+            <View
+              style={[
+                styles.logModalHeaderBar,
+                {
+                  paddingTop: 10,
+                  paddingHorizontal: 16,
+                  paddingBottom: 10,
+                  backgroundColor: c.headerSurface,
+                  borderBottomColor: c.border,
+                },
+              ]}
+            >
+              <Pressable
+                onPress={closeSettingsWithoutSave}
+                style={({ pressed }) => [
+                  styles.backBtn,
+                  { alignSelf: 'center', opacity: pressed ? 0.7 : 1 },
+                ]}
+                hitSlop={12}
+                accessibilityLabel="Back"
+                accessibilityRole="button"
+              >
+                <Ionicons name="chevron-back" size={26} color={c.accent} />
+                <Text style={styles.backBtnText}>Back</Text>
+              </Pressable>
+              <Text
+                style={[styles.logModalTitle, { color: c.textStrong }]}
+                numberOfLines={1}
+              >
+                Settings
+              </Text>
+            </View>
+          </SafeAreaView>
           <RNScrollView
+            style={[styles.flex, { backgroundColor: c.bg }]}
             contentContainerStyle={[
-              styles.scrollContent,
+              styles.settingsScrollContent,
               { paddingBottom: 24 + insets.bottom },
             ]}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
             nestedScrollEnabled
           >
-            <View style={styles.settingsTopBar}>
-              <Pressable
-                onPress={closeSettingsWithoutSave}
-                style={({ pressed }) => [
-                  styles.backBtn,
-                  { opacity: pressed ? 0.7 : 1 },
-                ]}
-                hitSlop={12}
-              >
-                <Ionicons name="chevron-back" size={26} color={c.accent} />
-                <Text style={styles.backBtnText}>Back</Text>
-              </Pressable>
-            </View>
-
-            <Text style={styles.settingsScreenTitle}>Settings</Text>
-            <Text style={styles.settingsSubcopy}>
+            {/* <Text style={styles.settingsSubcopy}>
               Update body weight, half-life, and appearance. Tap Save to apply.
-            </Text>
+            </Text> */}
 
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Body & metabolism</Text>
@@ -1511,15 +1579,15 @@ function Screen() {
             </Pressable>
           </RNScrollView>
         </KeyboardAvoidingView>
-      </SafeAreaView>
+      </View>
     )
   }
 
   /** Space for absolute bottom nav (inside safe area; SafeAreaView already pads home indicator). */
-  const bottomNavClearance = 86
+  const bottomNavClearance = 72
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: c.bg }]}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: c.headerSurface }]}>
       <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
       <View style={styles.homeRoot}>
         <KeyboardAvoidingView
@@ -1527,7 +1595,20 @@ function Screen() {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
           <Pressable
-            style={styles.homeHeaderStrip}
+            style={[
+              styles.homeHeaderStrip,
+              {
+                backgroundColor: c.headerSurface,
+                // borderBottomWidth: StyleSheet.hairlineWidth,
+                // borderBottomColor: c.border,
+                // borderWidth: 1,
+                // borderColor: 'red',
+                marginBottom: 0,
+                marginTop: 0,
+                paddingTop: 0,
+                paddingBottom: 6,
+              },
+            ]}
             onPress={closeOpenEntrySwipe}
             accessibilityRole="none"
           >
@@ -1565,6 +1646,7 @@ function Screen() {
           </Pressable>
           <ScrollView
             ref={homeScrollRef}
+            style={[styles.flex, { backgroundColor: c.bg }]}
             contentContainerStyle={[
               styles.homeScrollContent,
               { paddingBottom: 24 + bottomNavClearance },
@@ -1582,7 +1664,7 @@ function Screen() {
             }
           >
           <Pressable
-            style={styles.activeCaffeineSection}
+            style={[styles.activeCaffeineSection, { marginTop: 16 }]}
             onPress={closeOpenEntrySwipe}
             accessibilityRole="none"
           >
@@ -1649,6 +1731,7 @@ function Screen() {
                   width: windowWidth,
                   marginLeft: -(16 + insets.left),
                   marginRight: -(16 + insets.right),
+                  backgroundColor: c.bg,
                 },
               ]}
             >
@@ -1768,7 +1851,14 @@ function Screen() {
 
           {consumptionDayGroups.length > 0 ? (
             <Pressable
-              style={[styles.consumptionStickyHeader, { backgroundColor: c.bg }]}
+              style={[
+                styles.consumptionStickyHeader,
+                {
+                  backgroundColor: c.bg,
+                  borderBottomWidth: StyleSheet.hairlineWidth,
+                  borderBottomColor: c.border,
+                },
+              ]}
               onPress={closeOpenEntrySwipe}
               accessibilityRole="none"
             >
@@ -1939,7 +2029,7 @@ function Screen() {
           style={[
             styles.homeBottomNav,
             {
-              backgroundColor: c.bg,
+              backgroundColor: c.headerSurface,
               borderTopColor: c.border,
             },
           ]}
@@ -2024,51 +2114,56 @@ function Screen() {
             style={[
               styles.logModalOverlayRoot,
               {
-                backgroundColor: c.bg,
-                top: insets.top,
-                left: insets.left,
-                right: insets.right,
-                bottom: insets.bottom,
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
               },
             ]}
             accessibilityViewIsModal={Platform.OS === 'ios'}
             importantForAccessibility="yes"
           >
           <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
-          <View
-            style={[
-              styles.logModalHeaderBar,
-              {
-                paddingTop: 10,
-                paddingHorizontal: 16,
-                paddingBottom: 10,
-                borderBottomColor: c.border,
-              },
-            ]}
+          <SafeAreaView
+            edges={['top', 'left', 'right']}
+            style={{ backgroundColor: c.headerSurface }}
           >
-            <Pressable
-              onPress={() => {
-                Keyboard.dismiss()
-                closeLogModal()
-              }}
-              style={({ pressed }) => [
-                styles.backBtn,
-                { alignSelf: 'center', opacity: pressed ? 0.7 : 1 },
+            <View
+              style={[
+                styles.logModalHeaderBar,
+                {
+                  paddingTop: 10,
+                  paddingHorizontal: 16,
+                  paddingBottom: 10,
+                  backgroundColor: c.headerSurface,
+                  borderBottomColor: c.border,
+                },
               ]}
-              hitSlop={12}
-              accessibilityLabel="Back"
-              accessibilityRole="button"
             >
-              <Ionicons name="chevron-back" size={26} color={c.accent} />
-              <Text style={styles.backBtnText}>Back</Text>
-            </Pressable>
-            <Text
-              style={[styles.logModalTitle, { color: c.textStrong }]}
-              numberOfLines={1}
-            >
-              Log Caffeine
-            </Text>
-          </View>
+              <Pressable
+                onPress={() => {
+                  Keyboard.dismiss()
+                  closeLogModal()
+                }}
+                style={({ pressed }) => [
+                  styles.backBtn,
+                  { alignSelf: 'center', opacity: pressed ? 0.7 : 1 },
+                ]}
+                hitSlop={12}
+                accessibilityLabel="Back"
+                accessibilityRole="button"
+              >
+                <Ionicons name="chevron-back" size={26} color={c.accent} />
+                <Text style={styles.backBtnText}>Back</Text>
+              </Pressable>
+              <Text
+                style={[styles.logModalTitle, { color: c.textStrong }]}
+                numberOfLines={1}
+              >
+                Log Caffeine
+              </Text>
+            </View>
+          </SafeAreaView>
           <LogModalBodyHost>
             <View style={styles.logModalBodyColumn}>
               <View
@@ -2342,9 +2437,7 @@ function Screen() {
                                       backgroundColor: selected
                                         ? schemeTint(
                                             c.accent,
-                                            c.surface === '#ffffff'
-                                              ? 0.12
-                                              : 0.2
+                                            scheme === 'light' ? 0.12 : 0.2
                                           ) ?? c.inputBg
                                         : c.inputBg,
                                       opacity: pressed ? 0.88 : 1,
@@ -2558,9 +2651,7 @@ function Screen() {
                                       backgroundColor: selected
                                         ? schemeTint(
                                             c.accent,
-                                            c.surface === '#ffffff'
-                                              ? 0.12
-                                              : 0.2
+                                            scheme === 'light' ? 0.12 : 0.2
                                           ) ?? c.inputBg
                                         : c.inputBg,
                                       opacity: pressed ? 0.88 : 1,
@@ -2931,7 +3022,7 @@ function makeStyles(c: ThemeColors) {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingTop: 10,
+      paddingTop: 6,
       paddingBottom: 2,
       paddingHorizontal: 14,
       borderTopWidth: StyleSheet.hairlineWidth,
@@ -2939,7 +3030,7 @@ function makeStyles(c: ThemeColors) {
     /** Same width on left/right so the + stays visually centered. */
     homeBottomNavSide: {
       width: 46,
-      minHeight: 40,
+      minHeight: 34,
       justifyContent: 'center',
     },
     homeBottomNavSideEnd: {
@@ -2952,7 +3043,7 @@ function makeStyles(c: ThemeColors) {
     homeScrollTopFab: {
       position: 'absolute',
       left: 16,
-      bottom: 78,
+      bottom: 66,
       zIndex: 60,
       elevation: 6,
     },
@@ -2969,9 +3060,9 @@ function makeStyles(c: ThemeColors) {
       shadowRadius: 4,
     },
     logFab: {
-      width: 58,
-      height: 58,
-      borderRadius: 29,
+      width: 52,
+      height: 52,
+      borderRadius: 26,
       alignItems: 'center',
       justifyContent: 'center',
       shadowColor: '#000',
@@ -2994,6 +3085,7 @@ function makeStyles(c: ThemeColors) {
     logModalBodyColumn: {
       flex: 1,
       minHeight: 0,
+      backgroundColor: c.bg,
     },
     logModalSearchBlock: {
       paddingHorizontal: 16,
@@ -3109,7 +3201,7 @@ function makeStyles(c: ThemeColors) {
       fontWeight: '700',
       minWidth: 0,
     },
-    scrollContent: { paddingHorizontal: 16, paddingTop: 8 },
+    settingsScrollContent: { paddingHorizontal: 16, paddingTop: 12 },
     /** Same horizontal inset as section titles (`cardTitle`); header sits outside ScrollView here. */
     homeHeaderStrip: {
       paddingHorizontal: 16,
@@ -3125,7 +3217,6 @@ function makeStyles(c: ThemeColors) {
       alignItems: 'center',
       justifyContent: 'center',
     },
-    settingsTopBar: { marginBottom: 4 },
     backBtn: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -3135,17 +3226,9 @@ function makeStyles(c: ThemeColors) {
       paddingRight: 12,
     },
     backBtnText: { fontSize: 17, color: c.accent, fontWeight: '600' },
-    settingsScreenTitle: {
-      fontSize: 28,
-      fontWeight: '700',
-      color: c.textStrong,
-      marginTop: 4,
-      letterSpacing: -0.5,
-    },
     settingsSubcopy: {
       fontSize: 14,
       color: c.text,
-      marginTop: 8,
       marginBottom: 16,
       lineHeight: 20,
     },
@@ -3302,7 +3385,10 @@ function makeStyles(c: ThemeColors) {
     unitChipOn: {
       borderColor: c.accent,
       backgroundColor:
-        schemeTint(c.accent, c.surface === '#ffffff' ? 0.12 : 0.2) ?? c.inputBg,
+        schemeTint(
+          c.accent,
+          c.surface === PALETTE.light.surface ? 0.12 : 0.2
+        ) ?? c.inputBg,
     },
     unitChipText: { fontSize: 14, color: c.text },
     unitChipTextOn: { fontWeight: '700', color: c.textStrong },
