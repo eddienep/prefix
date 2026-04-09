@@ -1,6 +1,7 @@
 import Feather from '@expo/vector-icons/Feather'
 import { Ionicons } from '@expo/vector-icons'
 import DateTimePicker from '@react-native-community/datetimepicker'
+import { openAndroidDateTimePicker } from './src/openAndroidDateTimePicker'
 import { StatusBar } from 'expo-status-bar'
 import {
   memo,
@@ -2319,36 +2320,36 @@ function Screen() {
                         Time
                       </Text>
                       <Pressable
-                        onPress={() => setShowPicker(true)}
+                        onPress={() => {
+                          if (Platform.OS === 'android') {
+                            openAndroidDateTimePicker(
+                              consumptionAt,
+                              setConsumptionAt,
+                            )
+                          } else {
+                            setShowPicker(true)
+                          }
+                        }}
                         style={styles.dateBtn}
                       >
                         <Text style={styles.dateBtnText}>
                           {dayjs(consumptionAt).format('lll')}
                         </Text>
                       </Pressable>
-                      {showPicker && (
+                      {Platform.OS === 'ios' && showPicker ? (
                         <DateTimePicker
                           value={consumptionAt}
                           mode="datetime"
-                          display={
-                            Platform.OS === 'ios' ? 'spinner' : 'default'
+                          display="spinner"
+                          themeVariant={
+                            scheme === 'dark' ? 'dark' : 'light'
                           }
-                          {...(Platform.OS === 'ios'
-                            ? {
-                                themeVariant:
-                                  scheme === 'dark'
-                                    ? ('dark' as const)
-                                    : ('light' as const),
-                                textColor: c.textStrong,
-                              }
-                            : {})}
+                          textColor={c.textStrong}
                           onChange={(_, date) => {
-                            if (Platform.OS === 'android')
-                              setShowPicker(false)
                             if (date) setConsumptionAt(date)
                           }}
                         />
-                      )}
+                      ) : null}
                       {Platform.OS === 'ios' && showPicker && (
                         <Pressable
                           style={styles.donePicker}
@@ -2792,30 +2793,29 @@ function Screen() {
                   )}
                   <Text style={[styles.label, { marginTop: 12 }]}>Time</Text>
                   <Pressable
-                    onPress={() => setRowSheetShowPicker(true)}
+                    onPress={() => {
+                      if (Platform.OS === 'android') {
+                        openAndroidDateTimePicker(rowSheetAt, setRowSheetAt)
+                      } else {
+                        setRowSheetShowPicker(true)
+                      }
+                    }}
                     style={styles.dateBtn}
                   >
                     <Text style={styles.dateBtnText}>
                       {dayjs(rowSheetAt).format('lll')}
                     </Text>
                   </Pressable>
-                  {rowSheetShowPicker ? (
+                  {Platform.OS === 'ios' && rowSheetShowPicker ? (
                     <DateTimePicker
                       value={rowSheetAt}
                       mode="datetime"
-                      display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                      {...(Platform.OS === 'ios'
-                        ? {
-                            themeVariant:
-                              scheme === 'dark'
-                                ? ('dark' as const)
-                                : ('light' as const),
-                            textColor: c.textStrong,
-                          }
-                        : {})}
+                      display="spinner"
+                      themeVariant={
+                        scheme === 'dark' ? 'dark' : 'light'
+                      }
+                      textColor={c.textStrong}
                       onChange={(_, date) => {
-                        if (Platform.OS === 'android')
-                          setRowSheetShowPicker(false)
                         if (date) setRowSheetAt(date)
                       }}
                     />
