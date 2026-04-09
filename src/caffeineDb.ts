@@ -134,16 +134,30 @@ export function recentPickerRowsFromEntries(
  * - **Browse:** "Recent" (if any) and a single "Generic" section only; other
  *   catalog products appear only when the user searches.
  */
+/**
+ * True when every whitespace-separated token appears somewhere in the row’s
+ * searchable text (name + category). Matches user expectation for queries like
+ * “starbucks coffee” vs requiring the exact substring “starbucks coffee”.
+ */
+function sourceRowMatchesQuery(
+  queryNormalized: string,
+  row: Pick<CaffeineSourceRow, 'name' | 'category'>
+): boolean {
+  const q = queryNormalized.trim()
+  if (!q) return true
+  const tokens = q.split(/\s+/).filter((t) => t.length > 0)
+  if (tokens.length === 0) return true
+  const haystack = `${row.name} ${row.category}`.toLowerCase()
+  return tokens.every((t) => haystack.includes(t))
+}
+
 export function buildCaffeinePickerSections(
   query: string,
   recentRows: readonly CaffeinePickerRow[],
   db: readonly CaffeineSourceRow[] = CAFFEINE_PICKER_ITEMS
 ): CaffeinePickerSection[] {
   const q = query.trim().toLowerCase()
-  const match = (row: CaffeineSourceRow) =>
-    !q ||
-    row.name.toLowerCase().includes(q) ||
-    row.category.toLowerCase().includes(q)
+  const match = (row: CaffeineSourceRow) => sourceRowMatchesQuery(q, row)
 
   if (q.length > 0) {
     const data = db.filter(match).sort((a, b) => a.name.localeCompare(b.name))
