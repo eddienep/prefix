@@ -1996,6 +1996,15 @@ function Screen() {
                           display={
                             Platform.OS === 'ios' ? 'spinner' : 'default'
                           }
+                          {...(Platform.OS === 'ios'
+                            ? {
+                                themeVariant:
+                                  scheme === 'dark'
+                                    ? ('dark' as const)
+                                    : ('light' as const),
+                                textColor: c.textStrong,
+                              }
+                            : {})}
                           onChange={(_, date) => {
                             if (Platform.OS === 'android')
                               setShowPicker(false)
